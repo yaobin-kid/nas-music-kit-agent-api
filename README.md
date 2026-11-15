@@ -82,10 +82,25 @@ GET /healthz
 | `MUSIC_API_BEARER_TOKEN` | 空 | 上游使用 Bearer Token 时传值 |
 | `PORT` | 单服务镜像 `8080`；bundle 内音乐服务 `8848` | 监听端口 |
 | `AGENT_PORT` | `8080` | 仅 bundle：agent API 监听端口 |
+| `MUSIC_API_RATE_LIMIT` | `40` | 限流窗口内允许的上游请求数，`0` 为关闭 |
+| `MUSIC_API_RATE_WINDOW` | `300` | 限流窗口（秒） |
+
+## 限流
+
+上游 GD 音乐台/juneix 的限制约为 **5 分钟 50 次**，并且会动态调整；重试同样消耗额度。
+
+本服务在每次真正发往上游的请求前做滑动窗口限流，默认 **40 次 / 300 秒**，给重试和上游波动留余量：
+
+- 超限返回 `429`，带 `Retry-After` 响应头
+- 上游自己返回 `429` 时，同样转成 `429` 并保留等待时间
+- `GET /healthz` 不消耗额度
+- `MUSIC_API_RATE_LIMIT=0` 可关闭本地限流，不建议
+- 限流只作用于经过本服务的请求；直接访问 juneix 的 `8848` 网页不受此限制
+- 限流状态在进程内存里，本镜像只启动一个 uvicorn 进程；如果部署多个副本，上游额度是共享的，需要自行降低每个副本的限制
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.2.0` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.3.0` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -109,6 +124,8 @@ services:
       MUSIC_API_BASE_URL: http://192.168.1.10:8848   # 改成你的音乐 API 地址
       MUSIC_API_TIMEOUT: "30"
       MUSIC_API_RETRIES: "2"
+      MUSIC_API_RATE_LIMIT: "40"
+      MUSIC_API_RATE_WINDOW: "300"
 ```
 
 说明：
@@ -143,6 +160,8 @@ services:
     environment:
       PORT: 8080
       MUSIC_API_BASE_URL: http://127.0.0.1:8848
+      MUSIC_API_RATE_LIMIT: "40"
+      MUSIC_API_RATE_WINDOW: "300"
 ```
 
 说明：
@@ -170,6 +189,8 @@ services:
       MUSIC_API_BASE_URL: http://127.0.0.1:8848
       MUSIC_API_TIMEOUT: "30"
       MUSIC_API_RETRIES: "2"
+      MUSIC_API_RATE_LIMIT: "40"
+      MUSIC_API_RATE_WINDOW: "300"
       TZ: Asia/Shanghai
     volumes:
       - ./music:/music
@@ -257,8 +278,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。

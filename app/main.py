@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
@@ -9,7 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from . import __version__
-from .client import MusicApiClient, MusicApiError
+from .client import MusicApiClient, MusicApiError, RateLimitExceeded, RateLimiter
 
 APP_VERSION = os.getenv("APP_VERSION", __version__)
 
@@ -53,6 +54,10 @@ async def lifespan(app: FastAPI):
         user_agent=os.getenv(
             "MUSIC_API_USER_AGENT", f"nas-music-kit-agent-api/{APP_VERSION}"
         ),
+        rate_limiter=RateLimiter(
+            limit=_env_int("MUSIC_API_RATE_LIMIT", 40),
+            window=_env_float("MUSIC_API_RATE_WINDOW", 300.0),
+        ),
     )
     yield
     await app.state.client.aclose()
@@ -77,6 +82,20 @@ async def handle_music_api_error(_: Request, exc: MusicApiError) -> JSONResponse
     if exc.response_body:
         detail["upstream_body"] = exc.response_body
     return JSONResponse(status_code=502, content=detail)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def handle_rate_limit(_: Request, exc: RateLimitExceeded) -> JSONResponse:
+    detail: dict[str, Any] = {"error": str(exc)}
+    if exc.limit is not None:
+        detail["limit"] = exc.limit
+    if exc.window is not None:
+        detail["window"] = exc.window
+    return JSONResponse(
+        status_code=429,
+        content=detail,
+        headers={"Retry-After": str(max(1, math.ceil(exc.retry_after)))},
+    )
 
 
 @app.get("/healthz")

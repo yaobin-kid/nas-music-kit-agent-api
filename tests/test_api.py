@@ -106,3 +106,46 @@ def test_upstream_error_becomes_502(client):
 def test_search_requires_name(client):
     response = client.get("/api/search", params={"source": "netease"})
     assert response.status_code == 422
+
+
+@respx.mock
+def test_local_rate_limit_returns_429(monkeypatch):
+    monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("MUSIC_API_RETRIES", "0")
+    monkeypatch.setenv("MUSIC_API_RATE_LIMIT", "1")
+    monkeypatch.setenv("MUSIC_API_RATE_WINDOW", "300")
+
+    respx.get(url__regex=rf"{re.escape(BASE)}/api/search.*").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    with TestClient(app) as test_client:
+        params = {"source": "netease", "name": "小方桌", "pages": 1}
+        assert test_client.get("/api/search", params=params).status_code == 200
+        limited = test_client.get("/api/search", params=params)
+
+    assert limited.status_code == 429
+    assert 1 <= int(limited.headers["retry-after"]) <= 300
+
+
+@respx.mock
+def test_upstream_429_keeps_retry_after(monkeypatch):
+    monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("MUSIC_API_RETRIES", "0")
+
+    respx.get(url__regex=rf"{re.escape(BASE)}/api/search.*").mock(
+        return_value=httpx.Response(
+            429,
+            headers={"Retry-After": "30"},
+            json={"error": "rate limited"},
+        )
+    )
+
+    with TestClient(app) as test_client:
+        response = test_client.get(
+            "/api/search",
+            params={"source": "netease", "name": "小方桌"},
+        )
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "30"

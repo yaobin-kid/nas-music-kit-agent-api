@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import math
+import time
+from collections import deque
 from typing import Any
 
 import httpx
@@ -21,6 +24,67 @@ class MusicApiError(Exception):
         self.response_body = response_body
 
 
+class RateLimitExceeded(Exception):
+    """本地保护限流或上游返回 429。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after: float = 60.0,
+        limit: int | None = None,
+        window: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+        self.limit = limit
+        self.window = window
+
+
+class RateLimiter:
+    """滑动窗口限流，只统计真正发往上游的请求。"""
+
+    def __init__(self, limit: int, window: float) -> None:
+        self.limit = limit
+        self.window = window
+        self._events: deque[float] = deque()
+        self._lock = asyncio.Lock()
+
+    @property
+    def enabled(self) -> bool:
+        return self.limit > 0 and self.window > 0
+
+    async def acquire(self) -> None:
+        if not self.enabled:
+            return
+
+        async with self._lock:
+            now = time.monotonic()
+            while self._events and now - self._events[0] >= self.window:
+                self._events.popleft()
+
+            if len(self._events) >= self.limit:
+                retry_after = max(self.window - (now - self._events[0]), 0.0)
+                raise RateLimitExceeded(
+                    f"请求过于频繁：最多 {self.limit} 次 / {int(self.window)} 秒，"
+                    f"请 {math.ceil(retry_after)} 秒后重试",
+                    retry_after=retry_after,
+                    limit=self.limit,
+                    window=self.window,
+                )
+
+            self._events.append(now)
+
+
+def _parse_retry_after(value: str | None) -> float:
+    if not value:
+        return 60.0
+    try:
+        return max(float(value), 0.0)
+    except ValueError:
+        return 60.0
+
+
 class MusicApiClient:
     """封装 NAS 音乐 API 的 /api/search 与 /api/download。"""
 
@@ -33,9 +97,11 @@ class MusicApiClient:
         cookie: str = "",
         bearer_token: str = "",
         user_agent: str = "nas-music-kit-agent-api",
+        rate_limiter: RateLimiter | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._retries = max(0, retries)
+        self._rate_limiter = rate_limiter
 
         headers = {
             "Accept": "application/json",
@@ -61,6 +127,9 @@ class MusicApiClient:
         last_body = ""
 
         for attempt in range(self._retries + 1):
+            if self._rate_limiter is not None:
+                await self._rate_limiter.acquire()
+
             try:
                 response = await self._client.request(method, path, **kwargs)
             except httpx.HTTPError as exc:
@@ -68,6 +137,13 @@ class MusicApiClient:
                     await asyncio.sleep(0.5 * (attempt + 1))
                     continue
                 raise MusicApiError(f"请求音乐 API 失败: {exc}") from exc
+
+            if response.status_code == 429:
+                retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+                raise RateLimitExceeded(
+                    f"上游音乐 API 限流，请 {math.ceil(retry_after)} 秒后重试",
+                    retry_after=retry_after,
+                )
 
             if response.status_code >= 500:
                 last_status = response.status_code
