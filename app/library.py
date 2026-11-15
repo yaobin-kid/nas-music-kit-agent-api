@@ -305,6 +305,16 @@ def organize_library(
         except OSError:
             pass
 
+    # 源根目录为空时删除；/music 是 nas-music-kit 的固定下载目录，必须保留
+    source_dir_removed = False
+    if source.resolve() != root.resolve() and source != Path("/music"):
+        try:
+            if not any(source.iterdir()) and not os.path.ismount(source):
+                source.rmdir()
+                source_dir_removed = True
+        except OSError:
+            pass
+
     return {
         "library_dir": str(root),
         "download_dir": str(source),
@@ -316,5 +326,6 @@ def organize_library(
         "lyrics_written": lyrics_written,
         "skipped": skipped,
         "source_dirs_removed": source_dirs_removed,
+        "source_dir_removed": source_dir_removed,
         "errors": errors,
     }

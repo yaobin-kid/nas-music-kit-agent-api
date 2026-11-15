@@ -80,7 +80,8 @@ def test_organize_moves_from_download_dir_to_library(tmp_path, monkeypatch):
     assert result["download_dir"] == str(downloads)
     assert result["library_dir"] == str(library_root)
     assert result["moved"] == 1
-    assert result["source_dirs_removed"] >= 1
+    assert result["source_dir_removed"] is True
+    assert not downloads.exists()
 
 
 def test_organize_dry_run_does_not_move(tmp_path, monkeypatch):

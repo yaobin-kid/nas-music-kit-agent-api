@@ -263,7 +263,8 @@ nas-music-kit 的下载目录固定是 `/music`，这个不要改。Agent 只额
 - `DOWNLOAD_DIR`：固定 `/music`，nas-music-kit 写这里，agent 从这里读取并清洗
 - `LIBRARY_DIR`：清洗后的媒体库，建议 `/library`，Navidrome 扫描这里
 - 清洗时音频和同名 `.lrc` 会一起从 `/music` 移动到 `/library`
-- 移动成功后，`/music` 里的原文件和空子目录会被清理；`/music` 根目录保留
+- 移动成功后，`/music` 里的原文件和空子目录会被清理
+- 源目录为空时会删除整个源目录；但 `/music` 根目录始终保留，因为 nas-music-kit 还要继续往里下载
 - 非音频附属文件（如封面 `.jpg`）不会自动删除，避免误删素材
 - 想保持旧行为可以让 `LIBRARY_DIR=/music`，此时就是原地整理，不会删除目录
 - `GET /healthz` 会返回当前实际使用的 `library_dir` 和 `download_dir`
@@ -300,7 +301,7 @@ nas-music-kit 的下载目录固定是 `/music`，这个不要改。Agent 只额
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.8.0` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.9.0` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -753,8 +754,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.7.0
-git push origin v0.7.0
+git tag v0.8.0
+git push origin v0.8.0
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。
