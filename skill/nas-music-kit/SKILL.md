@@ -263,6 +263,7 @@ nas-music-kit 固定下载到 `/music`，清洗时会自动移动到 `LIBRARY_DI
 - 同名 `.lrc` 随歌曲移动，统一转 UTF-8。
 - 没有 `.lrc` 时，把内嵌歌词导出为 UTF-8 `.lrc`。
 - 非法字符替换，重名自动追加 `(2)`。
+- 移动成功后，原下载目录里的文件和空子目录会被清理，`/music` 根目录保留。
 - `dry_run=true` 只预览，不移动文件。
 
 返回字段：
@@ -274,6 +275,7 @@ nas-music-kit 固定下载到 `/music`，清洗时会自动移动到 `LIBRARY_DI
 - `tags_fixed`：修复并回写的标签数
 - `lyrics_written`：写出的歌词数
 - `skipped`：本来就在目标位置的文件数
+- `source_dirs_removed`：清理掉的源目录空子目录数
 - `errors[]`：失败文件和原因
 
 汇报时至少说明移动数量、修复数量、歌词数量；有 `errors` 要列出来。

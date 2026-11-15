@@ -276,14 +276,34 @@ def organize_library(
                     written = _write_lrc(target_lrc, lyrics_text)
                     if written:
                         lyrics_written += 1
-                        if lrc_source is not None and lrc_source != target_lrc and lrc_source.exists():
-                            try:
-                                lrc_source.unlink()
-                            except OSError:
-                                pass
+
+                # 目标歌词已存在（无论是新写入还是原本就有），删除源目录里的 .lrc
+                if (
+                    lrc_source is not None
+                    and lrc_source != target.with_suffix(".lrc")
+                    and target.with_suffix(".lrc").exists()
+                    and lrc_source.exists()
+                ):
+                    try:
+                        lrc_source.unlink()
+                    except OSError:
+                        pass
             except Exception as exc:
                 if len(errors) < 100:
                     errors.append({"file": str(path), "error": str(exc)})
+
+    # 清理源目录里的空子目录，保留源根目录
+    source_dirs_removed = 0
+    for dirpath, _dirnames, _filenames in os.walk(source, topdown=False):
+        current = Path(dirpath)
+        if current.resolve() == source.resolve():
+            continue
+        try:
+            if not any(current.iterdir()):
+                current.rmdir()
+                source_dirs_removed += 1
+        except OSError:
+            pass
 
     return {
         "library_dir": str(root),
@@ -295,5 +315,6 @@ def organize_library(
         "tags_fixed": tags_fixed,
         "lyrics_written": lyrics_written,
         "skipped": skipped,
+        "source_dirs_removed": source_dirs_removed,
         "errors": errors,
     }

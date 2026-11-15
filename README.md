@@ -263,7 +263,9 @@ nas-music-kit 的下载目录固定是 `/music`，这个不要改。Agent 只额
 - `DOWNLOAD_DIR`：固定 `/music`，nas-music-kit 写这里，agent 从这里读取并清洗
 - `LIBRARY_DIR`：清洗后的媒体库，建议 `/library`，Navidrome 扫描这里
 - 清洗时音频和同名 `.lrc` 会一起从 `/music` 移动到 `/library`
-- 想保持旧行为可以让 `LIBRARY_DIR=/music`，此时就是原地整理
+- 移动成功后，`/music` 里的原文件和空子目录会被清理；`/music` 根目录保留
+- 非音频附属文件（如封面 `.jpg`）不会自动删除，避免误删素材
+- 想保持旧行为可以让 `LIBRARY_DIR=/music`，此时就是原地整理，不会删除目录
 - `GET /healthz` 会返回当前实际使用的 `library_dir` 和 `download_dir`
 
 > 旧部署升级：Navidrome 原来扫描 `./music` 的，要改成扫描 `./library`；第一次执行 `organize` 会把 `/music` 里的已有文件全部搬到 `/library`。
@@ -298,7 +300,7 @@ nas-music-kit 的下载目录固定是 `/music`，这个不要改。Agent 只额
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.7.0` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.8.0` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -636,6 +638,77 @@ docker build -f Dockerfile.bundle \
 
 - `wait=false`：提交任务后脚本退出，适合 cron，任务在容器里继续跑
 - `wait=true`：脚本等待任务完成；大批量会很慢
+
+### 榜单功能测试
+
+在 NAS 的 `music-charts` 目录执行：
+
+```bash
+cd /volume1/docker/marvis/music-charts
+```
+
+**1. 先确认 agent 正常**
+
+```bash
+curl http://127.0.0.1:8080/healthz
+```
+
+**2. 预览模式**
+
+```bash
+python3 charts.py --dry-run
+```
+
+预期日志：
+
+```text
+曲库载入: N 首
+[平台] 抓取 N 首
+[平台] 匹配 N 首 / 去重后 N 首 / 未匹配 N 条
+```
+
+同时生成 `reports/未匹配清单-YYYY-MM-DD.csv`。`--dry-run` 不会创建播放列表，也不会提交补歌任务。
+
+**3. 正式执行一次**
+
+```bash
+python3 charts.py
+```
+
+预期能看到：
+
+```text
+[平台] 已创建播放列表《...》
+[agent] 已提交补歌任务 xxxx，共 N 首
+```
+
+如果缺少这两行，检查 `config.json` 里的 `agent_api.enable`、`agent_api.base`，以及 agent 的 `/healthz`。
+
+**4. 查看补歌任务**
+
+```bash
+curl -s "http://127.0.0.1:8080/api/jobs/<job_id>"
+```
+
+轮询到 `status=completed`，再检查 `./library` 里是否出现新歌，以及 Navidrome 是否扫描到。
+
+测试阶段可以把 `agent_api.wait` 设为 `true`，让脚本等待任务结束；日常 cron 建议保持 `false`。
+
+**5. 复跑预览**
+
+```bash
+python3 charts.py --dry-run
+```
+
+未匹配数量应该比第一次少；如果没减少，说明补歌没成功或 `LIBRARY_DIR` 配错了。
+
+**6. 独立歌单链接测试**
+
+```bash
+python3 playlist_import.py "https://music.163.com/playlist?id=3778678" --dry-run
+```
+
+确认 `total / matched / missing` 正常后，去掉 `--dry-run` 正式导入。
 - `max_tracks` 默认 1000，避免一次提交过多
 - `config.json` 含 Navidrome 密码和 Spotify 密钥，已在 `.gitignore` 中排除，不要提交
 

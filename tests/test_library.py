@@ -34,6 +34,7 @@ def test_organize_moves_audio_and_transcodes_lyrics(tmp_path, monkeypatch):
     lrc = target.with_suffix(".lrc")
     assert lrc.read_text(encoding="utf-8") == "第一句歌词"
     assert not (incoming / "track.lrc").exists()
+    assert not incoming.exists()
     assert result["moved"] == 1
     assert result["lyrics_written"] == 1
 
@@ -59,11 +60,12 @@ def test_organize_fixes_mojibake_tags(tmp_path, monkeypatch):
 def test_organize_moves_from_download_dir_to_library(tmp_path, monkeypatch):
     downloads = tmp_path / "downloads"
     library_root = tmp_path / "music"
-    downloads.mkdir()
+    incoming = downloads / "incoming"
+    incoming.mkdir(parents=True)
     library_root.mkdir()
-    audio = downloads / "track.mp3"
+    audio = incoming / "track.mp3"
     audio.write_bytes(b"not really audio")
-    (downloads / "track.lrc").write_bytes("第一句歌词".encode("gb18030"))
+    (incoming / "track.lrc").write_bytes("第一句歌词".encode("gb18030"))
 
     monkeypatch.setattr(
         library, "read_tags", lambda _path: ("小方桌", "小春", "平凡的一天", "")
@@ -78,6 +80,7 @@ def test_organize_moves_from_download_dir_to_library(tmp_path, monkeypatch):
     assert result["download_dir"] == str(downloads)
     assert result["library_dir"] == str(library_root)
     assert result["moved"] == 1
+    assert result["source_dirs_removed"] >= 1
 
 
 def test_organize_dry_run_does_not_move(tmp_path, monkeypatch):
