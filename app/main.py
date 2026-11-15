@@ -8,8 +8,8 @@ from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from app import __version__
-from app.client import MusicApiClient, MusicApiError
+from . import __version__
+from .client import MusicApiClient, MusicApiError
 
 APP_VERSION = os.getenv("APP_VERSION", __version__)
 

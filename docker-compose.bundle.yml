@@ -1,0 +1,19 @@
+name: nas-music-kit-bundle
+
+services:
+  bundle:
+    image: ghcr.io/yaobin-kid/nas-music-kit-agent-api-bundle:latest
+    container_name: nas-music-kit-bundle
+    restart: unless-stopped
+    ports:
+      - "${MUSIC_KIT_PORT:-8848}:8848"
+      - "${AGENT_PORT:-8080}:8080"
+    environment:
+      PORT: 8848
+      AGENT_PORT: 8080
+      MUSIC_API_BASE_URL: http://127.0.0.1:8848
+      MUSIC_API_TIMEOUT: ${MUSIC_API_TIMEOUT:-30}
+      MUSIC_API_RETRIES: ${MUSIC_API_RETRIES:-2}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ${MUSIC_DIR:-./music}:/music

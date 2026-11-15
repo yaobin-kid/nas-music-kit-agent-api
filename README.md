@@ -6,6 +6,8 @@
 - `POST /api/download`：按歌曲信息触发下载（由上游完成落盘与标签写入）
 - 接口地址、鉴权信息都通过环境变量配置，镜像可直接复用
 
+默认镜像只包含 agent API；`Dockerfile.bundle` 还会把原版 `juneix/nas-music-kit` 打进同一容器，适合单容器部署。
+
 > 上游 `/api/download` 只返回下载结果元数据（`filename`、`status`、`tags`），音频由上游客端写入 NAS 音库；本服务忠实透传该响应。
 >
 > 注意：公共的 `music-api.gdstudio.xyz` 只提供旧的 `api.php` 接口，没有 `/api/search`、`/api/download`。本服务需要把 `MUSIC_API_BASE_URL` 指向自建音乐服务（例如 NAS 上的部署地址）。
@@ -78,7 +80,8 @@ GET /healthz
 | `MUSIC_API_RETRIES` | `2` | 5xx / 网络错误重试次数 |
 | `MUSIC_API_COOKIE` | 空 | 上游需要登录态时传 Cookie |
 | `MUSIC_API_BEARER_TOKEN` | 空 | 上游使用 Bearer Token 时传值 |
-| `PORT` | `8080` | 容器监听端口 |
+| `PORT` | 单服务镜像 `8080`；bundle 内音乐服务 `8848` | 监听端口 |
+| `AGENT_PORT` | `8080` | 仅 bundle：agent API 监听端口 |
 
 ## 部署
 
@@ -110,6 +113,38 @@ docker build \
 
 构建参数只提供默认值，运行时仍可用 `-e MUSIC_API_BASE_URL=...` 覆盖。
 
+### 单镜像扩展（bundle）
+
+`Dockerfile.bundle` 基于 `ghcr.io/juneix/nas-music-kit`，在同一个容器里同时启动：
+
+- 原版音乐服务：`0.0.0.0:8848`
+- 本 agent API：`0.0.0.0:8080`
+
+此时上游地址走容器内回环即可，不需要 Cookie，也不经过绿联隧道：
+
+```bash
+docker run -d --name nas-music-kit-bundle \
+  -p 8848:8848 -p 8080:8080 \
+  -v ./music:/music \
+  ghcr.io/yaobin-kid/nas-music-kit-agent-api-bundle:latest
+```
+
+或者使用仓库里的 compose：
+
+```bash
+docker compose -f docker-compose.bundle.yml up -d
+```
+
+bundle 镜像内 `PORT` 默认 `8848`、`AGENT_PORT` 默认 `8080`。如果改了 `PORT`，`MUSIC_API_BASE_URL` 会按 `http://127.0.0.1:<PORT>` 自动推导，也可以显式覆盖。
+
+自行构建：
+
+```bash
+docker build -f Dockerfile.bundle -t nas-music-kit-bundle:local .
+```
+
+可以用 `--build-arg MUSIC_KIT_IMAGE=ghcr.io/juneix/nas-music-kit:<tag>` 固定上游镜像版本。
+
 ## Skill
 
 `skill/nas-music-kit/SKILL.md` 是给 Trae 使用的技能说明，流程为：
@@ -137,15 +172,18 @@ uvicorn app.main:app --reload --port 8080
 - 发布 GitHub Release
 - 手动触发 `workflow_dispatch`
 
-镜像地址：`ghcr.io/yaobin-kid/nas-music-kit-agent-api`
+镜像地址：
+
+- `ghcr.io/yaobin-kid/nas-music-kit-agent-api`（独立服务）
+- `ghcr.io/yaobin-kid/nas-music-kit-agent-api-bundle`（含 juneix 音乐服务）
 
 标签规则：`v1.2.3` 会生成 `1.2.3`、`1.2`、`1`、`latest` 和 commit sha 标签，平台为 `linux/amd64` 与 `linux/arm64`。
 
 发布新版本：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。

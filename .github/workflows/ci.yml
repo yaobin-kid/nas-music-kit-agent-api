@@ -21,3 +21,12 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Run tests
         run: pytest -q
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build standalone image
+        run: docker build -t nas-music-kit-api:ci .
+      - name: Build bundle image
+        run: docker build -f Dockerfile.bundle -t nas-music-kit-bundle:ci .

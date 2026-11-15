@@ -1,0 +1,30 @@
+ARG MUSIC_KIT_IMAGE=ghcr.io/juneix/nas-music-kit:latest
+FROM ${MUSIC_KIT_IMAGE}
+
+ARG APP_VERSION=0.2.0
+ARG MUSIC_API_BASE_URL=
+
+ENV PYTHONUNBUFFERED=1 \
+    PORT=8848 \
+    AGENT_PORT=8080 \
+    MUSIC_API_BASE_URL=${MUSIC_API_BASE_URL} \
+    APP_VERSION=${APP_VERSION}
+
+WORKDIR /agent
+
+COPY requirements.txt /agent/requirements.txt
+RUN pip install --no-cache-dir -r /agent/requirements.txt
+
+COPY app /agent/agent_app
+COPY bundle/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 8848 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.getenv('AGENT_PORT','8080')+'/healthz',timeout=3);urllib.request.urlopen('http://127.0.0.1:'+os.getenv('PORT','8848')+'/',timeout=3)"
+
+CMD ["/entrypoint.sh"]
+
+LABEL org.opencontainers.image.source="https://github.com/yaobin-kid/nas-music-kit-agent-api"
+LABEL org.opencontainers.image.description="Juneix NAS Music Kit + agent API in one container"
