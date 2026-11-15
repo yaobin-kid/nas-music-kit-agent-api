@@ -1,0 +1,25 @@
+name: nas-music-kit
+
+services:
+  nas-music-kit:
+    image: ghcr.io/juneix/nas-music-kit:latest
+    container_name: nas-music-kit
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      PORT: ${MUSIC_KIT_PORT:-8848}
+    volumes:
+      - ${MUSIC_DIR:-./music}:/music
+
+  music-kit-agent:
+    image: ghcr.io/yaobin-kid/nas-music-kit-agent-api:latest
+    container_name: nas-music-kit-agent
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - nas-music-kit
+    environment:
+      PORT: ${AGENT_PORT:-8080}
+      MUSIC_API_BASE_URL: http://127.0.0.1:${MUSIC_KIT_PORT:-8848}
+      MUSIC_API_TIMEOUT: ${MUSIC_API_TIMEOUT:-30}
+      MUSIC_API_RETRIES: ${MUSIC_API_RETRIES:-2}

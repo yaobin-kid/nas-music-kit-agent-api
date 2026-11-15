@@ -85,65 +85,140 @@ GET /healthz
 
 ## 部署
 
-### docker run
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.2.0` 之类的具体标签即可。
 
-```bash
-docker run -d --name nas-music-kit-api \
-  -p 8080:8080 \
-  -e MUSIC_API_BASE_URL=http://192.168.1.10:8080 \
-  -e MUSIC_API_COOKIE='your-cookie' \
-  ghcr.io/yaobin-kid/nas-music-kit-agent-api:latest
+| 方案 | 使用镜像 | 端口 |
+| --- | --- | --- |
+| A 独立 agent | `nas-music-kit-agent-api` | 8080 |
+| B 两个容器 + host 网络（推荐，不扩展原镜像） | `juneix/nas-music-kit` + `nas-music-kit-agent-api` | 8848 + 8080 |
+| C 单镜像 bundle | `nas-music-kit-agent-api-bundle` | 8848 + 8080 |
+
+### 方案 A：只部署 agent API
+
+音乐 API 已经跑在 NAS 的其它容器或主机上时使用。
+
+```yaml
+services:
+  music-kit-agent:
+    image: ghcr.io/yaobin-kid/nas-music-kit-agent-api:latest
+    container_name: nas-music-kit-agent
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      MUSIC_API_BASE_URL: http://192.168.1.10:8848   # 改成你的音乐 API 地址
+      MUSIC_API_TIMEOUT: "30"
+      MUSIC_API_RETRIES: "2"
 ```
 
-### docker compose
+说明：
 
-```bash
-cp .env.example .env
-# 修改 .env 里的 MUSIC_API_BASE_URL
-docker compose up -d
+- 音乐服务在同一个 compose 网络时，地址可以写服务名，例如 `http://nas-music-kit:8848`。
+- 只有走绿联隧道等带登录态的地址，才需要额外添加 `MUSIC_API_COOKIE` 或 `MUSIC_API_BEARER_TOKEN`。
+- 仓库文件：[docker-compose.yml](./docker-compose.yml)。
+
+### 方案 B：两个容器 + host 网络（推荐）
+
+不修改 juneix 镜像，两个容器共用宿主网络，agent 通过 `127.0.0.1:8848` 调音乐服务。
+
+```yaml
+services:
+  nas-music-kit:
+    image: ghcr.io/juneix/nas-music-kit:latest
+    container_name: nas-music-kit
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      PORT: 8848
+    volumes:
+      - ./music:/music
+
+  music-kit-agent:
+    image: ghcr.io/yaobin-kid/nas-music-kit-agent-api:latest
+    container_name: nas-music-kit-agent
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - nas-music-kit
+    environment:
+      PORT: 8080
+      MUSIC_API_BASE_URL: http://127.0.0.1:8848
 ```
 
-### 自行构建（构建时指定接口地址）
+说明：
+
+- `network_mode: host` 下不要写 `ports`，8848 和 8080 会直接占用宿主机端口。
+- 端口冲突时修改 `PORT`，并同步修改 `MUSIC_API_BASE_URL` 里的端口。
+- 仓库文件：[docker-compose.host.yml](./docker-compose.host.yml)。
+
+### 方案 C：单镜像 bundle
+
+juneix 音乐服务和 agent API 在同一个容器里，通过容器内回环通信，不需要 Cookie。
+
+```yaml
+services:
+  nas-music-kit-bundle:
+    image: ghcr.io/yaobin-kid/nas-music-kit-agent-api-bundle:latest
+    container_name: nas-music-kit-bundle
+    restart: unless-stopped
+    ports:
+      - "8848:8848"
+      - "8080:8080"
+    environment:
+      PORT: 8848
+      AGENT_PORT: 8080
+      MUSIC_API_BASE_URL: http://127.0.0.1:8848
+      MUSIC_API_TIMEOUT: "30"
+      MUSIC_API_RETRIES: "2"
+      TZ: Asia/Shanghai
+    volumes:
+      - ./music:/music
+```
+
+说明：
+
+- 左侧端口被占用时只改映射，例如 `18848:8848`；`PORT`、`AGENT_PORT` 保持容器内端口不变。
+- 仓库文件：[docker-compose.bundle.yml](./docker-compose.bundle.yml)。
+- bundle 跟随上游镜像版本，juneix 更新后重新构建或拉取新版本即可。
+
+### 启动与验证
 
 ```bash
-docker build \
-  --build-arg MUSIC_API_BASE_URL=http://192.168.1.10:8080 \
-  -t nas-music-kit-api:local .
+# 按所选方案启动，例如：
+docker compose -f docker-compose.host.yml up -d
+
+curl http://127.0.0.1:8080/healthz
+
+curl -G "http://127.0.0.1:8080/api/search" \
+  --data-urlencode "source=netease" \
+  --data-urlencode "name=小方桌" \
+  --data-urlencode "pages=1"
+```
+
+三个 compose 文件都支持用 `.env` 覆盖默认值，变量参考 [.env.example](./.env.example)：
+
+| 变量 | 说明 |
+| --- | --- |
+| `MUSIC_API_BASE_URL` | 音乐 API 地址 |
+| `AGENT_HOST_PORT` | agent API 映射到宿主机的端口 |
+| `MUSIC_KIT_PORT` | host 方案里音乐服务的端口 |
+| `AGENT_PORT` | host 方案里 agent 容器的监听端口 |
+| `MUSIC_KIT_HOST_PORT` | bundle 方案里音乐服务映射到宿主机的端口 |
+| `MUSIC_DIR` | 音乐下载目录 |
+
+### 自行构建
+
+```bash
+# 独立 agent 镜像
+docker build -t nas-music-kit-api:local .
+
+# bundle 镜像（可固定上游版本）
+docker build -f Dockerfile.bundle \
+  --build-arg MUSIC_KIT_IMAGE=ghcr.io/juneix/nas-music-kit:latest \
+  -t nas-music-kit-bundle:local .
 ```
 
 构建参数只提供默认值，运行时仍可用 `-e MUSIC_API_BASE_URL=...` 覆盖。
-
-### 单镜像扩展（bundle）
-
-`Dockerfile.bundle` 基于 `ghcr.io/juneix/nas-music-kit`，在同一个容器里同时启动：
-
-- 原版音乐服务：`0.0.0.0:8848`
-- 本 agent API：`0.0.0.0:8080`
-
-此时上游地址走容器内回环即可，不需要 Cookie，也不经过绿联隧道：
-
-```bash
-docker run -d --name nas-music-kit-bundle \
-  -p 8848:8848 -p 8080:8080 \
-  -v ./music:/music \
-  ghcr.io/yaobin-kid/nas-music-kit-agent-api-bundle:latest
-```
-
-或者使用仓库里的 compose：
-
-```bash
-docker compose -f docker-compose.bundle.yml up -d
-```
-
-bundle 镜像内 `PORT` 默认 `8848`、`AGENT_PORT` 默认 `8080`。如果改了 `PORT`，`MUSIC_API_BASE_URL` 会按 `http://127.0.0.1:<PORT>` 自动推导，也可以显式覆盖。
-
-自行构建：
-
-```bash
-docker build -f Dockerfile.bundle -t nas-music-kit-bundle:local .
-```
-
-可以用 `--build-arg MUSIC_KIT_IMAGE=ghcr.io/juneix/nas-music-kit:<tag>` 固定上游镜像版本。
 
 ## Skill
 
