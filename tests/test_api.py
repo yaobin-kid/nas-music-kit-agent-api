@@ -12,9 +12,11 @@ BASE = "https://music.example.com"
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
     monkeypatch.setenv("MUSIC_API_RETRIES", "0")
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
     with TestClient(app) as test_client:
         yield test_client
 
@@ -144,8 +146,10 @@ class _FakeSyncNavidrome:
         return {"playlist": {"id": "list-1"}}
 
 
-def test_playlist_import_endpoint(monkeypatch):
+def test_playlist_import_endpoint(monkeypatch, tmp_path):
     monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
     fake = _FakeSyncNavidrome()
     monkeypatch.setattr(
         "app.playlist_import.fetch_playlist",
@@ -172,6 +176,7 @@ def test_playlist_import_endpoint(monkeypatch):
 def test_organize_endpoint(tmp_path, monkeypatch):
     monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
     monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
     (tmp_path / "track.mp3").write_bytes(b"not really audio")
 
     with TestClient(app) as test_client:
@@ -182,9 +187,11 @@ def test_organize_endpoint(tmp_path, monkeypatch):
 
 
 @respx.mock
-def test_local_rate_limit_returns_429(monkeypatch):
+def test_local_rate_limit_returns_429(monkeypatch, tmp_path):
     monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
     monkeypatch.setenv("MUSIC_API_RETRIES", "0")
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
     monkeypatch.setenv("MUSIC_API_RATE_LIMIT", "1")
     monkeypatch.setenv("MUSIC_API_RATE_WINDOW", "300")
 
@@ -202,9 +209,11 @@ def test_local_rate_limit_returns_429(monkeypatch):
 
 
 @respx.mock
-def test_upstream_429_keeps_retry_after(monkeypatch):
+def test_upstream_429_keeps_retry_after(monkeypatch, tmp_path):
     monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
     monkeypatch.setenv("MUSIC_API_RETRIES", "0")
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
 
     respx.get(url__regex=rf"{re.escape(BASE)}/api/search.*").mock(
         return_value=httpx.Response(

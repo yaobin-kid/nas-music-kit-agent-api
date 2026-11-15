@@ -119,9 +119,17 @@ async def lifespan(app: FastAPI):
             timeout=_env_float("NAVIDROME_TIMEOUT", 60.0),
         )
 
+    app.state.library_dir = os.getenv("LIBRARY_DIR", "/music")
+    app.state.download_dir = os.getenv("DOWNLOAD_DIR", app.state.library_dir)
+    if not os.path.isdir(app.state.library_dir):
+        raise RuntimeError(f"LIBRARY_DIR 不存在: {app.state.library_dir}")
+    if not os.path.isdir(app.state.download_dir):
+        raise RuntimeError(f"DOWNLOAD_DIR 不存在: {app.state.download_dir}")
+
     app.state.jobs = JobManager(
         app.state.client,
-        library_dir=os.getenv("LIBRARY_DIR", "/music"),
+        library_dir=app.state.library_dir,
+        download_dir=app.state.download_dir,
         match_threshold=_env_float("MATCH_THRESHOLD", 0.9),
         match_source=os.getenv("MATCH_SOURCE", "netease"),
         navidrome=navidrome,
@@ -173,8 +181,13 @@ async def handle_rate_limit(_: Request, exc: RateLimitExceeded) -> JSONResponse:
 
 
 @app.get("/healthz")
-async def healthz() -> dict[str, str]:
-    return {"status": "ok", "version": APP_VERSION}
+async def healthz(request: Request) -> dict[str, str]:
+    return {
+        "status": "ok",
+        "version": APP_VERSION,
+        "library_dir": request.app.state.library_dir,
+        "download_dir": request.app.state.download_dir,
+    }
 
 
 @app.get("/api/search")
@@ -269,11 +282,16 @@ async def get_job(job_id: str, request: Request) -> Any:
 
 @app.post("/api/library/organize")
 async def organize(
+    request: Request,
     dry_run: bool = Query(False, description="只预览，不移动文件"),
 ) -> Any:
-    library_dir = os.getenv("LIBRARY_DIR", "/music")
     try:
-        return await asyncio.to_thread(organize_library, library_dir, dry_run=dry_run)
+        return await asyncio.to_thread(
+            organize_library,
+            request.app.state.library_dir,
+            source_dir=request.app.state.download_dir,
+            dry_run=dry_run,
+        )
     except LibraryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

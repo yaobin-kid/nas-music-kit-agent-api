@@ -9,6 +9,7 @@ services:
       - "${AGENT_HOST_PORT:-8080}:8080"
     volumes:
       - ${MUSIC_DIR:-./music}:/music
+      - ${DOWNLOADS_DIR:-./downloads}:/downloads
     environment:
       MUSIC_API_BASE_URL: ${MUSIC_API_BASE_URL:-http://192.168.1.10:8848}
       MUSIC_API_TIMEOUT: ${MUSIC_API_TIMEOUT:-30}
@@ -19,6 +20,7 @@ services:
       MUSIC_API_COOKIE: ${MUSIC_API_COOKIE:-}
       MUSIC_API_BEARER_TOKEN: ${MUSIC_API_BEARER_TOKEN:-}
       LIBRARY_DIR: /music
+      DOWNLOAD_DIR: /downloads
       MATCH_SOURCE: ${MATCH_SOURCE:-netease}
       MATCH_THRESHOLD: ${MATCH_THRESHOLD:-0.9}
       PLAYLIST_MATCH_THRESHOLD: ${PLAYLIST_MATCH_THRESHOLD:-0.86}

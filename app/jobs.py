@@ -100,6 +100,7 @@ class JobManager:
         client: MusicApiClient,
         *,
         library_dir: str,
+        download_dir: str | None = None,
         match_threshold: float = 0.9,
         match_source: str = "netease",
         navidrome: NavidromeClient | None = None,
@@ -107,6 +108,7 @@ class JobManager:
     ) -> None:
         self._client = client
         self._library_dir = library_dir
+        self._download_dir = download_dir or library_dir
         self._match_threshold = match_threshold
         self._match_source = match_source
         self._navidrome = navidrome
@@ -221,7 +223,10 @@ class JobManager:
                 job["stage"] = "organizing"
                 try:
                     job["organize_result"] = await asyncio.to_thread(
-                        organize_library, self._library_dir, dry_run=job["dry_run"]
+                        organize_library,
+                        self._library_dir,
+                        source_dir=self._download_dir,
+                        dry_run=job["dry_run"],
                     )
                 except Exception as exc:
                     job["organize_result"] = {"error": str(exc)}

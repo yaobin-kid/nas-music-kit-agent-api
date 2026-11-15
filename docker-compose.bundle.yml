@@ -20,6 +20,7 @@ services:
       MUSIC_API_COOKIE: ${MUSIC_API_COOKIE:-}
       MUSIC_API_BEARER_TOKEN: ${MUSIC_API_BEARER_TOKEN:-}
       LIBRARY_DIR: /music
+      DOWNLOAD_DIR: /downloads
       MATCH_SOURCE: ${MATCH_SOURCE:-netease}
       MATCH_THRESHOLD: ${MATCH_THRESHOLD:-0.9}
       PLAYLIST_MATCH_THRESHOLD: ${PLAYLIST_MATCH_THRESHOLD:-0.86}
@@ -33,3 +34,4 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ${MUSIC_DIR:-./music}:/music
+      - ${DOWNLOADS_DIR:-./downloads}:/downloads

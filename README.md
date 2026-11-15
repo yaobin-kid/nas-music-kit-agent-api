@@ -177,7 +177,8 @@ GET /healthz
 | `MUSIC_API_RATE_LIMIT` | `40` | 限流窗口内允许的上游请求数，`0` 为关闭 |
 | `MUSIC_API_RATE_WINDOW` | `300` | 限流窗口（秒） |
 | `MUSIC_API_DOWNLOAD_TIMEOUT` | `300` | 下载请求超时（秒） |
-| `LIBRARY_DIR` | `/music` | 媒体库根目录，清洗与补歌共用 |
+| `LIBRARY_DIR` | `/music` | 容器内媒体库目录，清洗后的最终目录，Navidrome 应扫描这里 |
+| `DOWNLOAD_DIR` | 同 `LIBRARY_DIR` | 容器内原始下载目录，juneix 写这里，agent 从这里清洗 |
 | `MATCH_SOURCE` | `netease` | 补歌默认搜索音源 |
 | `MATCH_THRESHOLD` | `0.9` | 补歌标题匹配阈值，越高越严格 |
 | `NAVIDROME_URL` | 空 | Navidrome 地址，例如 `http://127.0.0.1:4533` |
@@ -188,6 +189,21 @@ GET /healthz
 | `IMPORT_PROXY_URL` | 空 | Spotify/汽水抓取代理，如 `http://127.0.0.1:7890` |
 | `SPOTIFY_CLIENT_ID` | 空 | Spotify Web API 回退凭据，可选 |
 | `SPOTIFY_CLIENT_SECRET` | 空 | Spotify Web API 回退凭据，可选 |
+
+## 目录结构
+
+推荐把“原始下载”和“清洗后的媒体库”分开，避免未整理文件和正式库混在一起：
+
+```text
+/downloads        juneix 下载的原始文件
+/music           清洗后的媒体库，结构为 Artist/Album/Artist - Title.mp3
+```
+
+- `DOWNLOAD_DIR`：下载目录，juneix 写这里，agent 从这里读取并清洗
+- `LIBRARY_DIR`：媒体库目录，agent 清洗后写入这里，Navidrome 扫描这里
+- 清洗时音频和同名 `.lrc` 会一起从 `DOWNLOAD_DIR` 移动到 `LIBRARY_DIR`
+- 只挂一个目录也能用：不设置 `DOWNLOAD_DIR` 时默认等于 `LIBRARY_DIR`，行为和旧版一致
+- `GET /healthz` 会返回当前实际使用的 `library_dir` 和 `download_dir`
 
 ## 限流
 
@@ -209,6 +225,7 @@ GET /healthz
 清洗规则：
 
 - 目录结构：`LIBRARY_DIR/Artist/Album/Artist - Title.ext`
+- 原始下载在 `DOWNLOAD_DIR`，清洗时自动移动到 `LIBRARY_DIR`；两者相同时原地整理
 - 标签乱码用 `ftfy` 修复；检测到乱码时回写标题、歌手、专辑
 - 同名 `.lrc` 随歌曲一起移动，统一转成 UTF-8
 - 没有 `.lrc` 时，把内嵌歌词导出为 UTF-8 `.lrc`
@@ -218,7 +235,7 @@ GET /healthz
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.5.0` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.6.0` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -240,6 +257,7 @@ services:
       - "8080:8080"
     volumes:
       - ./music:/music
+      - ./downloads:/downloads
     environment:
       MUSIC_API_BASE_URL: http://192.168.1.10:8848   # 改成你的音乐 API 地址
       MUSIC_API_TIMEOUT: "30"
@@ -248,6 +266,7 @@ services:
       MUSIC_API_RATE_LIMIT: "40"
       MUSIC_API_RATE_WINDOW: "300"
       LIBRARY_DIR: /music
+      DOWNLOAD_DIR: /downloads
       MATCH_SOURCE: netease
       MATCH_THRESHOLD: "0.9"
       PLAYLIST_MATCH_THRESHOLD: "0.86"
@@ -264,7 +283,8 @@ services:
 
 - 音乐服务在同一个 compose 网络时，地址可以写服务名，例如 `http://nas-music-kit:8848`。
 - 只有走绿联隧道等带登录态的地址，才需要额外添加 `MUSIC_API_COOKIE` 或 `MUSIC_API_BEARER_TOKEN`。
-- `./music` 必须和音乐服务的实际下载目录一致，否则清洗找不到刚下载的文件。
+- `./music` 是清洗后的媒体库，Navidrome 应扫描这里。
+- `./downloads` 必须和音乐服务的实际下载目录一致，否则清洗找不到刚下载的文件。
 - 仓库文件：[docker-compose.yml](./docker-compose.yml)。
 
 ### 方案 B：两个容器 + host 网络（推荐）
@@ -280,8 +300,10 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8848
+      DOWNLOAD_DIR: /downloads
     volumes:
       - ./music:/music
+      - ./downloads:/downloads
 
   music-kit-agent:
     image: ghcr.io/yaobin-kid/nas-music-kit-agent-api:latest
@@ -292,12 +314,14 @@ services:
       - nas-music-kit
     volumes:
       - ./music:/music
+      - ./downloads:/downloads
     environment:
       PORT: 8080
       MUSIC_API_BASE_URL: http://127.0.0.1:8848
       MUSIC_API_RATE_LIMIT: "40"
       MUSIC_API_RATE_WINDOW: "300"
       LIBRARY_DIR: /music
+      DOWNLOAD_DIR: /downloads
       MATCH_SOURCE: netease
       MATCH_THRESHOLD: "0.9"
       PLAYLIST_MATCH_THRESHOLD: "0.86"
@@ -314,7 +338,8 @@ services:
 
 - `network_mode: host` 下不要写 `ports`，8848 和 8080 会直接占用宿主机端口。
 - 端口冲突时修改 `PORT`，并同步修改 `MUSIC_API_BASE_URL` 里的端口。
-- 两个容器都挂载同一个 `./music`，下载和清洗才能看到同一批文件。
+- 两个容器都挂载 `./music` 和 `./downloads`：juneix 写 `/downloads`，agent 清洗后写入 `/music`。
+- Navidrome 只扫描 `./music`，不要扫描 `./downloads`。
 - 仓库文件：[docker-compose.host.yml](./docker-compose.host.yml)。
 
 ### 方案 C：单镜像 bundle
@@ -340,6 +365,7 @@ services:
       MUSIC_API_RATE_LIMIT: "40"
       MUSIC_API_RATE_WINDOW: "300"
       LIBRARY_DIR: /music
+      DOWNLOAD_DIR: /downloads
       MATCH_SOURCE: netease
       MATCH_THRESHOLD: "0.9"
       PLAYLIST_MATCH_THRESHOLD: "0.86"
@@ -353,12 +379,14 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - ./music:/music
+      - ./downloads:/downloads
 ```
 
 说明：
 
 - 左侧端口被占用时只改映射，例如 `18848:8848`；`PORT`、`AGENT_PORT` 保持容器内端口不变。
 - bundle 是桥接网络，`NAVIDROME_URL` 不能写 `127.0.0.1`，要填 NAS 的局域网地址。
+- 容器内 juneix 写 `/downloads`，agent 清洗后写入 `/music`；Navidrome 扫描 `./music`。
 - 仓库文件：[docker-compose.bundle.yml](./docker-compose.bundle.yml)。
 - bundle 跟随上游镜像版本，juneix 更新后重新构建或拉取新版本即可。
 
@@ -385,10 +413,14 @@ curl -G "http://127.0.0.1:8080/api/search" \
 | `MUSIC_KIT_PORT` | host 方案里音乐服务的端口 |
 | `AGENT_PORT` | host 方案里 agent 容器的监听端口 |
 | `MUSIC_KIT_HOST_PORT` | bundle 方案里音乐服务映射到宿主机的端口 |
-| `MUSIC_DIR` | 音乐下载与清洗目录 |
-| `LIBRARY_DIR` | 容器内媒体库目录，默认 `/music` |
+| `MUSIC_DIR` | 宿主机上的媒体库目录，挂载为容器内 `/music`，Navidrome 扫描这里 |
+| `DOWNLOADS_DIR` | 宿主机上的原始下载目录，挂载为容器内 `/downloads` |
+| `LIBRARY_DIR` | 容器内媒体库路径，compose 里固定为 `/music`，一般不用改 |
+| `DOWNLOAD_DIR` | 容器内下载路径，compose 里固定为 `/downloads`，一般不用改 |
 | `MATCH_SOURCE` / `MATCH_THRESHOLD` | 补歌搜索音源与匹配阈值 |
 | `NAVIDROME_URL` / `NAVIDROME_USER` / `NAVIDROME_PASSWORD` | Navidrome 扫描配置 |
+
+`MUSIC_DIR` 和 `DOWNLOADS_DIR` 是宿主机路径，写在 `.env` 里；`LIBRARY_DIR` 和 `DOWNLOAD_DIR` 是容器内路径，写在 compose 的 `environment` 里。
 
 ### 自行构建
 
@@ -473,8 +505,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。

@@ -248,12 +248,14 @@ curl -s -X POST "$MUSIC_KIT_API_URL/api/library/organize?dry_run=true"
 curl -s -X POST "$MUSIC_KIT_API_URL/api/library/organize"
 ```
 
-目标结构：
+目标结构（实际根目录由服务端 `LIBRARY_DIR` 决定，默认 `/music`）：
 
 ```text
 /music/Artist/Album/Artist - Title.mp3
 /music/Artist/Album/Artist - Title.lrc
 ```
+
+原始下载在服务端 `DOWNLOAD_DIR`，清洗时会自动移动到 `LIBRARY_DIR`；Skill 不需要关心宿主机路径，可通过 `/healthz` 查看当前目录。
 
 清洗规则：
 
@@ -265,6 +267,8 @@ curl -s -X POST "$MUSIC_KIT_API_URL/api/library/organize"
 
 返回字段：
 
+- `library_dir`：清洗后的媒体库目录
+- `download_dir`：原始下载目录
 - `scanned`：扫描到的音频数
 - `moved` / `planned`：已移动 / 预计划移动
 - `tags_fixed`：修复并回写的标签数

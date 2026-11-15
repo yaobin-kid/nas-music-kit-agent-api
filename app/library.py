@@ -194,22 +194,36 @@ def _write_lrc(target: Path, text: str) -> bool:
     return True
 
 
-def organize_library(library_dir: str | Path, *, dry_run: bool = False) -> dict[str, Any]:
+def organize_library(
+    library_dir: str | Path,
+    *,
+    source_dir: str | Path | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
     """按 Artist/Album/Artist - Title 归类媒体库。
 
+    默认原地整理；传入 source_dir 时，从下载目录移动到媒体库目录。
     - 修复标签乱码后再写入文件
     - 同名 .lrc 一并移动并转成 UTF-8
     - 没有 sidecar 时把内嵌歌词导出为 UTF-8 .lrc
     """
     root = Path(library_dir)
+    source = Path(source_dir) if source_dir else root
     if not root.is_dir():
         raise LibraryError(f"媒体库目录不存在: {root}")
+    if not source.is_dir():
+        raise LibraryError(f"下载目录不存在: {source}")
 
     scanned = moved = planned = tags_fixed = lyrics_written = skipped = 0
     errors: list[dict[str, str]] = []
 
-    for dirpath, dirnames, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(source):
         dirnames[:] = [name for name in dirnames if not name.startswith(".") and name not in SKIP_DIRS]
+        if source.resolve() != root.resolve():
+            current = Path(dirpath).resolve()
+            if current == root.resolve():
+                dirnames[:] = []
+                continue
 
         for filename in filenames:
             path = Path(dirpath) / filename
@@ -273,6 +287,7 @@ def organize_library(library_dir: str | Path, *, dry_run: bool = False) -> dict[
 
     return {
         "library_dir": str(root),
+        "download_dir": str(source),
         "dry_run": dry_run,
         "scanned": scanned,
         "moved": moved,

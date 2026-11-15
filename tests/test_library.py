@@ -56,6 +56,30 @@ def test_organize_fixes_mojibake_tags(tmp_path, monkeypatch):
     assert result["tags_fixed"] == 1
 
 
+def test_organize_moves_from_download_dir_to_library(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    library_root = tmp_path / "music"
+    downloads.mkdir()
+    library_root.mkdir()
+    audio = downloads / "track.mp3"
+    audio.write_bytes(b"not really audio")
+    (downloads / "track.lrc").write_bytes("第一句歌词".encode("gb18030"))
+
+    monkeypatch.setattr(
+        library, "read_tags", lambda _path: ("小方桌", "小春", "平凡的一天", "")
+    )
+
+    result = library.organize_library(library_root, source_dir=downloads)
+
+    target = library_root / "小春" / "平凡的一天" / "小春 - 小方桌.mp3"
+    assert target.exists()
+    assert not audio.exists()
+    assert target.with_suffix(".lrc").read_text(encoding="utf-8") == "第一句歌词"
+    assert result["download_dir"] == str(downloads)
+    assert result["library_dir"] == str(library_root)
+    assert result["moved"] == 1
+
+
 def test_organize_dry_run_does_not_move(tmp_path, monkeypatch):
     root = tmp_path / "music"
     root.mkdir(parents=True, exist_ok=True)
