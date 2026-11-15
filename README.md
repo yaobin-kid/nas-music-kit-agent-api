@@ -6,6 +6,9 @@
 - `POST /api/download`：按歌曲信息触发下载（由上游完成落盘与标签写入）
 - `POST /api/library/backfill`：批量补齐缺失歌曲，自动下载、清洗并触发 Navidrome 扫描
 - `POST /api/playlist/import`：给歌单/榜单链接，自动抓取、匹配并创建 Navidrome 播放列表
+- `POST /api/charts/refresh`：立即刷新榜单，支持 `dry_run` 预览
+- `GET /api/charts/status`：查看最近一次榜单运行状态和日志
+- `GET /api/charts/report`：下载最新未匹配清单
 - `POST /api/library/organize`：按 `Artist/Album/Artist - Title` 清洗媒体库
 - 接口地址、鉴权信息都通过环境变量配置，镜像可直接复用
 
@@ -224,6 +227,23 @@ POST /api/navidrome/scan
   → 让 Navidrome 重新扫描 LIBRARY_DIR
 ```
 
+### 5. 刷新榜单（异步）
+
+```text
+POST /api/charts/refresh {"dry_run": false}
+  → 202 + status=running
+  → API 后台调度内置榜单引擎（抓取、匹配、建列表、提交补歌），无需进容器执行脚本
+GET /api/charts/status
+  → status / job_ids / report_file / log_tail / error
+GET /api/charts/report
+  → 下载最新未匹配清单 CSV
+```
+
+- `dry_run=true` 只抓取、匹配、出报表，不建列表、不补歌
+- `wait=true` 会等待执行结束再返回，适合调试
+- 已有任务运行时返回 `409`
+- 每天 6 点 cron 不受影响；手动刷新和 cron 不要同时执行
+
 ## 配置
 
 | 环境变量 | 默认值 | 说明 |
@@ -250,6 +270,11 @@ POST /api/navidrome/scan
 | `IMPORT_PROXY_URL` | 空 | Spotify/汽水抓取代理，如 `http://127.0.0.1:7890` |
 | `SPOTIFY_CLIENT_ID` | 空 | Spotify Web API 回退凭据，可选 |
 | `SPOTIFY_CLIENT_SECRET` | 空 | Spotify Web API 回退凭据，可选 |
+| `CHARTS_HOST_DIR` | `./music-charts` | 宿主机榜单目录，只读挂载到 `/charts` |
+| `CHARTS_DIR` | `/charts` | 容器内榜单代码目录 |
+| `CHARTS_CONFIG` | `/charts/config.json` | 容器内榜单配置文件 |
+| `CHARTS_REPORTS_DIR` | `/tmp/charts-reports` | 报表、日志和运行状态目录 |
+| `CHARTS_TIMEOUT` | `3600` | 单次榜单执行超时（秒） |
 
 ## 目录结构
 
@@ -301,7 +326,7 @@ nas-music-kit 的下载目录固定是 `/music`，这个不要改。Agent 只额
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.9.0` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.10.0` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -623,7 +648,7 @@ docker build -f Dockerfile.bundle \
 3. 本服务后台搜索、下载，完成后清洗并触发 Navidrome 扫描
 4. 下一次榜单运行时，已下载的歌曲会正常匹配进播放列表
 
-> 补歌任务是后台异步的：本次榜单的播放列表不会立刻包含新歌，等任务完成并扫描后，下一次运行会自动纳入。需要立即重建时，等 `wait=true` 的任务完成后再执行一次 `charts.py`。
+> 补歌任务是后台异步的：本次榜单的播放列表不会立刻包含新歌，等任务完成并扫描后，下一次运行会自动纳入。需要立即重建时，等补歌任务完成后再调用一次 `POST /api/charts/refresh`。
 
 配置参考 [config.example.json](./music-charts/config.example.json)，复制为 `config.json` 后填写：
 
@@ -642,74 +667,98 @@ docker build -f Dockerfile.bundle \
 
 ### 榜单功能测试
 
-在 NAS 的 `music-charts` 目录执行：
-
-```bash
-cd /volume1/docker/marvis/music-charts
-```
-
-**1. 先确认 agent 正常**
+**1. 确认服务与榜单配置**
 
 ```bash
 curl http://127.0.0.1:8080/healthz
+curl -s http://127.0.0.1:8080/api/charts/status
 ```
 
-**2. 预览模式**
+`/api/charts/status` 里 `configured` 必须是 `true`。如果是 `false`，把 `CHARTS_HOST_DIR` 指向 NAS 上的 `music-charts` 目录并重启容器。
+
+**2. 预览一次**
 
 ```bash
-python3 charts.py --dry-run
+curl -s -X POST "http://127.0.0.1:8080/api/charts/refresh" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run": true}'
 ```
 
-预期日志：
-
-```text
-曲库载入: N 首
-[平台] 抓取 N 首
-[平台] 匹配 N 首 / 去重后 N 首 / 未匹配 N 条
-```
-
-同时生成 `reports/未匹配清单-YYYY-MM-DD.csv`。`--dry-run` 不会创建播放列表，也不会提交补歌任务。
-
-**3. 正式执行一次**
+返回 `202` 和 `status=running`，然后轮询：
 
 ```bash
-python3 charts.py
+watch -n 5 "curl -s http://127.0.0.1:8080/api/charts/status"
 ```
 
-预期能看到：
+直到 `status=completed`。重点看：
+
+- `log_tail` 里的抓取、匹配数量
+- `report_file` 是否生成
+- `error` 是否为空
+
+下载未匹配清单：
+
+```bash
+curl -s -o "未匹配清单.csv" "http://127.0.0.1:8080/api/charts/report"
+```
+
+**3. 正式刷新一次**
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/api/charts/refresh" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+预期 `status=completed`，`log_tail` 中出现：
 
 ```text
 [平台] 已创建播放列表《...》
 [agent] 已提交补歌任务 xxxx，共 N 首
 ```
 
-如果缺少这两行，检查 `config.json` 里的 `agent_api.enable`、`agent_api.base`，以及 agent 的 `/healthz`。
-
-**4. 查看补歌任务**
+`job_ids` 里就是补歌任务，继续查：
 
 ```bash
 curl -s "http://127.0.0.1:8080/api/jobs/<job_id>"
 ```
 
-轮询到 `status=completed`，再检查 `./library` 里是否出现新歌，以及 Navidrome 是否扫描到。
+轮询到 `status=completed` 后检查 `./library` 和 Navidrome。
 
-测试阶段可以把 `agent_api.wait` 设为 `true`，让脚本等待任务结束；日常 cron 建议保持 `false`。
-
-**5. 复跑预览**
+**4. 复跑预览**
 
 ```bash
-python3 charts.py --dry-run
+curl -s -X POST "http://127.0.0.1:8080/api/charts/refresh" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run": true}'
 ```
 
 未匹配数量应该比第一次少；如果没减少，说明补歌没成功或 `LIBRARY_DIR` 配错了。
 
+**5. 定时任务**
+
+每天 6 点的 `run.sh` 可以保持原样。也可以把 cron 改成调用：
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/api/charts/refresh" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+两种方式选一种，不要同时跑，避免重复建列表。
+
 **6. 独立歌单链接测试**
 
 ```bash
-python3 playlist_import.py "https://music.163.com/playlist?id=3778678" --dry-run
+curl -s -X POST "http://127.0.0.1:8080/api/playlist/import" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": ["https://music.163.com/playlist?id=3778678"],
+    "dry_run": true
+  }'
 ```
 
-确认 `total / matched / missing` 正常后，去掉 `--dry-run` 正式导入。
+确认 `total / matched / missing` 正常后，把 `dry_run` 改成 `false` 正式导入。
 - `max_tracks` 默认 1000，避免一次提交过多
 - `config.json` 含 Navidrome 密码和 Spotify 密钥，已在 `.gitignore` 中排除，不要提交
 
@@ -754,8 +803,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.8.0
-git push origin v0.8.0
+git tag v0.10.0
+git push origin v0.10.0
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。

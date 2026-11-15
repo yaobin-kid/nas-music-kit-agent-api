@@ -29,11 +29,16 @@ try:
     def _t2s(s: str) -> str:
         return _CC.convert(s)
 except Exception:
-    def _t2s(s: str) -> str:
-        return s
+    try:
+        from zhconv import convert as _zh_convert
+        def _t2s(s: str) -> str:
+            return _zh_convert(s, "zh-cn")
+    except Exception:
+        def _t2s(s: str) -> str:
+            return s
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONF_PATH = os.path.join(BASE_DIR, "config.json")
+CONF_PATH = os.getenv("CHARTS_CONFIG") or os.path.join(BASE_DIR, "config.json")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
@@ -536,7 +541,7 @@ def main():
             )
 
     # 报表
-    rep_dir = os.path.join(BASE_DIR, "reports")
+    rep_dir = os.getenv("CHARTS_REPORTS_DIR") or os.path.join(BASE_DIR, "reports")
     os.makedirs(rep_dir, exist_ok=True)
     stamp = NOW.strftime("%Y-%m-%d")
     csv_path = os.path.join(rep_dir, f"未匹配清单-{stamp}.csv")
@@ -574,7 +579,10 @@ def main():
             except Exception as e:
                 log(f"复制到 output 失败: {e}")
 
-    log_path = os.path.join(BASE_DIR, "logs", f"{stamp}.log")
+    log_path = os.path.join(
+        os.getenv("CHARTS_LOG_DIR") or os.path.join(BASE_DIR, "logs"),
+        f"{stamp}.log",
+    )
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as f:
         f.write("\n".join(LOG_LINES) + "\n")

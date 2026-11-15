@@ -1,7 +1,7 @@
 ARG MUSIC_KIT_IMAGE=ghcr.io/juneix/nas-music-kit:latest
 FROM ${MUSIC_KIT_IMAGE}
 
-ARG APP_VERSION=0.9.0
+ARG APP_VERSION=0.10.0
 ARG MUSIC_API_BASE_URL=
 
 ENV PYTHONUNBUFFERED=1 \
@@ -16,6 +16,7 @@ COPY requirements.txt /agent/requirements.txt
 RUN pip install --no-cache-dir -r /agent/requirements.txt
 
 COPY app /agent/agent_app
+COPY music-charts /charts
 COPY bundle/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

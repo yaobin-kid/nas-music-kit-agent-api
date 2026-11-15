@@ -28,6 +28,9 @@ description: 通过自建的 NAS 音乐 API 搜索、下载歌曲，导入外部
 | 用户需求 | 使用接口 |
 | --- | --- |
 | 给歌单/榜单链接，自动匹配并建列表 | `POST /api/playlist/import` |
+| 立即刷新榜单 | `POST /api/charts/refresh` |
+| 查看榜单运行状态 | `GET /api/charts/status` |
+| 下载最新未匹配清单 | `GET /api/charts/report` |
 | 找歌、看候选 | `GET /api/search` |
 | 下载某一首 | `POST /api/download` |
 | 补齐一批缺失歌曲 | `POST /api/library/backfill` |
@@ -177,6 +180,44 @@ curl -s -X POST "$MUSIC_KIT_API_URL/api/download" \
 - `filename` 是保存的文件名；`tags` 为 `ok` 表示元数据写入成功。
 - `bitrate` 是请求值回显，不代表实际码率。
 - `status` 不是 `success` 时，原样告诉用户，不要谎报成功。
+
+## 立即刷新榜单
+
+用户想马上刷新榜单、不等每天 6 点任务时，调用 HTTP 接口，不要执行 `charts.py`。
+
+```bash
+curl -s -X POST "$MUSIC_KIT_API_URL/api/charts/refresh" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run": true}'
+```
+
+- 默认异步：返回 `202` 和 `status=running`，用状态接口轮询。
+- `dry_run=true`：只抓取、匹配、出报表，不建列表、不补歌；建议先用它预览。
+- `wait=true`：等待执行结束再返回，可能很久，只在用户明确要求时使用。
+- `409`：已有榜单任务在执行，不要重复提交。
+- `503`：容器没有挂载 `music-charts` 目录或缺少 `config.json`。
+
+查看状态：
+
+```bash
+curl -s "$MUSIC_KIT_API_URL/api/charts/status"
+```
+
+重点字段：
+
+- `status`：`idle` / `running` / `completed` / `failed`
+- `job_ids`：本次提交的补歌任务 id，可再用 `/api/jobs/{id}` 查详情
+- `report_file`：未匹配清单路径
+- `log_tail`：最近日志
+- `error`：失败原因
+
+下载最新未匹配清单：
+
+```bash
+curl -s -o "未匹配清单.csv" "$MUSIC_KIT_API_URL/api/charts/report"
+```
+
+每日 6 点 cron 不受影响；但手动刷新与 cron 不要同时执行，避免重复建列表。
 
 ## 批量补齐缺失歌曲
 

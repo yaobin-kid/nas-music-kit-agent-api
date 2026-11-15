@@ -10,5 +10,8 @@ docker-compose.yml
 README.md
 skill
 tests
-music-charts
+music-charts/config.json
+music-charts/reports
+music-charts/logs
+music-charts/__pycache__
 .screenshots

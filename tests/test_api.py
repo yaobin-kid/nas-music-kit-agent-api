@@ -27,6 +27,42 @@ def test_healthz(client):
     assert response.json()["status"] == "ok"
 
 
+def test_charts_status_and_refresh_without_config(client):
+    state = client.get("/api/charts/status")
+    assert state.status_code == 200
+    assert state.json()["configured"] is False
+
+    refresh = client.post("/api/charts/refresh", json={"dry_run": True})
+    assert refresh.status_code == 503
+
+
+def test_charts_refresh_endpoint(monkeypatch, tmp_path):
+    charts_dir = tmp_path / "charts"
+    charts_dir.mkdir()
+    (charts_dir / "charts.py").write_text(
+        "print('[agent] 已提交补歌任务 abcdef1234567890，共 2 首')\n",
+        encoding="utf-8",
+    )
+    config = charts_dir / "config.json"
+    config.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setenv("CHARTS_DIR", str(charts_dir))
+    monkeypatch.setenv("CHARTS_CONFIG", str(config))
+    monkeypatch.setenv("CHARTS_REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.setenv("CHARTS_STATE_FILE", str(tmp_path / "charts-state.json"))
+    with TestClient(app) as test_client:
+        response = test_client.post(
+            "/api/charts/refresh?wait=true", json={"dry_run": True}
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["job_ids"] == ["abcdef1234567890"]
+
+
 @respx.mock
 def test_search_forwards_params(client):
     route = respx.get(url__regex=rf"{re.escape(BASE)}/api/search.*").mock(

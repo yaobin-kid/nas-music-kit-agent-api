@@ -21,6 +21,7 @@ services:
     volumes:
       - ${MUSIC_DIR:-./music}:/music
       - ${LIBRARY_HOST_DIR:-./library}:/library
+      - ${CHARTS_HOST_DIR:-./music-charts}:/charts:ro
     environment:
       PORT: ${AGENT_PORT:-8080}
       MUSIC_API_BASE_URL: http://127.0.0.1:${MUSIC_KIT_PORT:-8848}
@@ -41,3 +42,7 @@ services:
       NAVIDROME_USER: ${NAVIDROME_USER:-}
       NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD:-}
       NAVIDROME_SCAN_WAIT: ${NAVIDROME_SCAN_WAIT:-true}
+      CHARTS_DIR: /charts
+      CHARTS_CONFIG: /charts/config.json
+      CHARTS_REPORTS_DIR: /tmp/charts-reports
+      CHARTS_TIMEOUT: ${CHARTS_TIMEOUT:-3600}

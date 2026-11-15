@@ -10,6 +10,7 @@ services:
     volumes:
       - ${MUSIC_DIR:-./music}:/music
       - ${LIBRARY_HOST_DIR:-./library}:/library
+      - ${CHARTS_HOST_DIR:-./music-charts}:/charts:ro
     environment:
       MUSIC_API_BASE_URL: ${MUSIC_API_BASE_URL:-http://192.168.1.10:8848}
       MUSIC_API_TIMEOUT: ${MUSIC_API_TIMEOUT:-30}
@@ -31,4 +32,8 @@ services:
       NAVIDROME_USER: ${NAVIDROME_USER:-}
       NAVIDROME_PASSWORD: ${NAVIDROME_PASSWORD:-}
       NAVIDROME_SCAN_WAIT: ${NAVIDROME_SCAN_WAIT:-true}
+      CHARTS_DIR: /charts
+      CHARTS_CONFIG: /charts/config.json
+      CHARTS_REPORTS_DIR: /tmp/charts-reports
+      CHARTS_TIMEOUT: ${CHARTS_TIMEOUT:-3600}
       TZ: ${TZ:-Asia/Shanghai}

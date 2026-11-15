@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 ARG MUSIC_API_BASE_URL=
-ARG APP_VERSION=0.9.0
+ARG APP_VERSION=0.10.0
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -15,6 +15,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=10001:10001 app ./app
+COPY --chown=10001:10001 music-charts ./charts
 
 RUN useradd --create-home --uid 10001 appuser
 USER appuser

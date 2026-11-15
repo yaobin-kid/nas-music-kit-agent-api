@@ -7,10 +7,11 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
+from .charts_runner import ChartsBusy, ChartsNotConfigured, ChartsRunner
 from .client import MusicApiClient, MusicApiError, RateLimitExceeded, RateLimiter
 from .jobs import JobError, JobManager
 from .library import LibraryError, organize_library
@@ -57,6 +58,10 @@ class PlaylistImportRequest(BaseModel):
     proxy: bool = False
     backfill: bool = True
     scan: bool = True
+
+
+class ChartsRefreshRequest(BaseModel):
+    dry_run: bool = False
 
 
 def _env_int(name: str, default: int) -> int:
@@ -136,6 +141,18 @@ async def lifespan(app: FastAPI):
         scan_wait=_env_bool("NAVIDROME_SCAN_WAIT", True),
     )
     await app.state.jobs.start()
+
+    charts_dir = os.getenv("CHARTS_DIR", "/charts")
+    app.state.charts = ChartsRunner(
+        charts_dir=charts_dir,
+        config_path=os.getenv(
+            "CHARTS_CONFIG", os.path.join(charts_dir, "config.json")
+        ),
+        reports_dir=os.getenv("CHARTS_REPORTS_DIR", "/tmp/charts-reports"),
+        state_file=os.getenv("CHARTS_STATE_FILE", "/tmp/charts-state.json"),
+        timeout=_env_float("CHARTS_TIMEOUT", 3600.0),
+        python=os.getenv("CHARTS_PYTHON") or None,
+    )
 
     yield
 
@@ -270,6 +287,43 @@ async def playlist_import(
     result["backfill_job_id"] = job["job_id"]
     result["backfill_total"] = job["total"]
     return result
+
+
+@app.post("/api/charts/refresh")
+async def charts_refresh(
+    request: Request,
+    payload: ChartsRefreshRequest | None = None,
+    wait: bool = Query(False, description="是否等待执行结束"),
+) -> Any:
+    runner: ChartsRunner = request.app.state.charts
+    try:
+        state = await asyncio.to_thread(
+            runner.refresh,
+            dry_run=payload.dry_run if payload else False,
+            wait=wait,
+        )
+    except ChartsBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ChartsNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return JSONResponse(status_code=200 if wait else 202, content=state)
+
+
+@app.get("/api/charts/status")
+async def charts_status(request: Request) -> Any:
+    return request.app.state.charts.get_state()
+
+
+@app.get("/api/charts/report")
+async def charts_report(request: Request) -> Any:
+    path = request.app.state.charts.latest_report()
+    if path is None:
+        raise HTTPException(status_code=404, detail="还没有未匹配清单")
+    return FileResponse(
+        path,
+        media_type="text/csv; charset=utf-8",
+        filename=path.name,
+    )
 
 
 @app.get("/api/jobs/{job_id}")
