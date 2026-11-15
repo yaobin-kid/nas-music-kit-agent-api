@@ -13,7 +13,37 @@ AIGC:
 
 把 QQ音乐 / 网易云 / 汽水音乐 / Spotify 的歌单或榜单链接，解析曲目后匹配本地曲库（/volume1/共享音乐），在 Navidrome 里创建播放列表。
 
-## 用法
+## HTTP API（推荐）
+
+服务端已经内置同样的导入能力，不需要进入容器执行脚本：
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/api/playlist/import" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": ["https://music.163.com/playlist?id=3778678"],
+    "backfill": true,
+    "scan": true
+  }'
+```
+
+返回 `playlists`（每个链接的抓取/匹配结果）、`missing_tracks` 和 `backfill_job_id`。补歌进度用：
+
+```bash
+curl -s "http://127.0.0.1:8080/api/jobs/<backfill_job_id>"
+```
+
+可选字段：
+
+- `dry_run=true`：只抓取和匹配，不建列表、不补歌
+- `loose=true`：宽松匹配
+- `proxy=true`：Spotify/汽水走服务端 `IMPORT_PROXY_URL`
+- `name`：自定义列表名，仅单个链接可用
+- `backfill=false`：只导入列表，不自动补歌
+
+## 命令行用法（NAS 本机）
+
+以下命令适用于直接在 NAS 上调试；日常和 Skill 调用请优先使用上面的 HTTP API。
 
 ```bash
 cd /volume1/docker/marvis/music-charts
@@ -39,7 +69,7 @@ python3 playlist_import.py "链接" --loose
 
 ## 自动补歌
 
-匹配结束后，未匹配歌曲会读取 `config.json` 的 `agent_api`，提交给 `nas-music-kit-agent-api`：
+HTTP API 默认会自动补歌；命令行模式仍可读取 `config.json` 的 `agent_api`，把未匹配歌曲提交给 `nas-music-kit-agent-api`：
 
 - `POST /api/library/backfill` 批量提交
 - 后台串行下载，受上游限流约束

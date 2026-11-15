@@ -5,6 +5,7 @@
 - `GET /api/search`：按关键词搜索歌曲
 - `POST /api/download`：按歌曲信息触发下载（由上游完成落盘与标签写入）
 - `POST /api/library/backfill`：批量补齐缺失歌曲，自动下载、清洗并触发 Navidrome 扫描
+- `POST /api/playlist/import`：给歌单/榜单链接，自动抓取、匹配并创建 Navidrome 播放列表
 - `POST /api/library/organize`：按 `Artist/Album/Artist - Title` 清洗媒体库
 - 接口地址、鉴权信息都通过环境变量配置，镜像可直接复用
 
@@ -98,6 +99,45 @@ GET /api/jobs/{job_id}
 
 任务流程为 `搜索 → 匹配 → 下载 → 清洗 → Navidrome 扫描`，重试同样计入上游限流。
 
+### 导入歌单/榜单链接
+
+```http
+POST /api/playlist/import
+Content-Type: application/json
+```
+
+```json
+{
+  "urls": ["https://music.163.com/playlist?id=3778678"],
+  "backfill": true,
+  "scan": true
+}
+```
+
+支持网易云、QQ音乐、Spotify、汽水音乐，多个链接可一次传入。返回示例：
+
+```json
+{
+  "library_songs": 1200,
+  "playlists": [
+    {"platform": "netease", "name": "测试歌单", "total": 100, "matched": 80, "missing": 20, "playlist_id": "..."}
+  ],
+  "missing_tracks": [{"title": "温柔", "artist": "五月天", "source": "netease"}],
+  "backfill_job_id": "...",
+  "backfill_total": 20
+}
+```
+
+可选字段：
+
+- `dry_run=true`：只抓取和匹配，不建列表、不补歌
+- `loose=true`：宽松匹配
+- `proxy=true`：Spotify/汽水走 `IMPORT_PROXY_URL`
+- `backfill=false`：只导入列表，不自动补歌
+- `name`：自定义列表名，仅单个链接可用
+
+有 `backfill_job_id` 时用 `GET /api/jobs/{job_id}` 查询补歌进度；补歌完成后再调用一次导入接口，列表会重建并包含新歌。
+
 ### 清洗媒体库
 
 ```http
@@ -144,6 +184,10 @@ GET /healthz
 | `NAVIDROME_USER` | 空 | Navidrome 管理员账号 |
 | `NAVIDROME_PASSWORD` | 空 | Navidrome 管理员密码 |
 | `NAVIDROME_SCAN_WAIT` | `true` | 扫描后是否等待完成 |
+| `PLAYLIST_MATCH_THRESHOLD` | `0.86` | 歌单导入的模糊匹配阈值 |
+| `IMPORT_PROXY_URL` | 空 | Spotify/汽水抓取代理，如 `http://127.0.0.1:7890` |
+| `SPOTIFY_CLIENT_ID` | 空 | Spotify Web API 回退凭据，可选 |
+| `SPOTIFY_CLIENT_SECRET` | 空 | Spotify Web API 回退凭据，可选 |
 
 ## 限流
 
@@ -174,7 +218,7 @@ GET /healthz
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.4.0` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.5.0` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -206,6 +250,10 @@ services:
       LIBRARY_DIR: /music
       MATCH_SOURCE: netease
       MATCH_THRESHOLD: "0.9"
+      PLAYLIST_MATCH_THRESHOLD: "0.86"
+      IMPORT_PROXY_URL: ""
+      SPOTIFY_CLIENT_ID: ""
+      SPOTIFY_CLIENT_SECRET: ""
       NAVIDROME_URL: http://192.168.1.10:4533
       NAVIDROME_USER: admin
       NAVIDROME_PASSWORD: change-me
@@ -252,6 +300,10 @@ services:
       LIBRARY_DIR: /music
       MATCH_SOURCE: netease
       MATCH_THRESHOLD: "0.9"
+      PLAYLIST_MATCH_THRESHOLD: "0.86"
+      IMPORT_PROXY_URL: ""
+      SPOTIFY_CLIENT_ID: ""
+      SPOTIFY_CLIENT_SECRET: ""
       NAVIDROME_URL: http://127.0.0.1:4533
       NAVIDROME_USER: admin
       NAVIDROME_PASSWORD: change-me
@@ -290,6 +342,10 @@ services:
       LIBRARY_DIR: /music
       MATCH_SOURCE: netease
       MATCH_THRESHOLD: "0.9"
+      PLAYLIST_MATCH_THRESHOLD: "0.86"
+      IMPORT_PROXY_URL: ""
+      SPOTIFY_CLIENT_ID: ""
+      SPOTIFY_CLIENT_SECRET: ""
       NAVIDROME_URL: http://192.168.1.10:4533   # 桥接网络不能写 127.0.0.1
       NAVIDROME_USER: admin
       NAVIDROME_PASSWORD: change-me
@@ -417,8 +473,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.4.0
-git push origin v0.4.0
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。

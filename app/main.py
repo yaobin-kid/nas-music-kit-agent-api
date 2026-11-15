@@ -14,7 +14,8 @@ from . import __version__
 from .client import MusicApiClient, MusicApiError, RateLimitExceeded, RateLimiter
 from .jobs import JobError, JobManager
 from .library import LibraryError, organize_library
-from .navidrome import NavidromeClient, NavidromeError
+from .navidrome import NavidromeClient, NavidromeError, NavidromeSync
+from .playlist_import import import_playlists
 
 APP_VERSION = os.getenv("APP_VERSION", __version__)
 
@@ -45,6 +46,16 @@ class TrackRef(BaseModel):
 class BackfillRequest(BaseModel):
     tracks: list[TrackRef] = Field(min_length=1, max_length=1000)
     organize: bool = True
+    scan: bool = True
+
+
+class PlaylistImportRequest(BaseModel):
+    urls: list[str] = Field(min_length=1, max_length=20)
+    name: str | None = Field(None, max_length=200)
+    dry_run: bool = False
+    loose: bool = False
+    proxy: bool = False
+    backfill: bool = True
     scan: bool = True
 
 
@@ -97,6 +108,16 @@ async def lifespan(app: FastAPI):
             scan_timeout=_env_float("NAVIDROME_SCAN_TIMEOUT", 300.0),
         )
     app.state.navidrome = navidrome
+    app.state.navidrome_sync = None
+    if navidrome is not None:
+        app.state.navidrome_sync = NavidromeSync(
+            navidrome_url,
+            user=navidrome_user,
+            password=navidrome_password,
+            client_name=os.getenv("NAVIDROME_CLIENT", "nas-music-kit"),
+            api_version=os.getenv("NAVIDROME_API_VERSION", "1.16.1"),
+            timeout=_env_float("NAVIDROME_TIMEOUT", 60.0),
+        )
 
     app.state.jobs = JobManager(
         app.state.client,
@@ -193,6 +214,49 @@ async def backfill(
         "status": job["status"],
         "total": job["total"],
     }
+
+
+@app.post("/api/playlist/import")
+async def playlist_import(
+    payload: PlaylistImportRequest,
+    request: Request,
+) -> Any:
+    if payload.name and len(payload.urls) > 1:
+        raise HTTPException(status_code=422, detail="多个链接时不要指定统一的 name")
+
+    navidrome: NavidromeSync | None = request.app.state.navidrome_sync
+    if navidrome is None:
+        raise HTTPException(
+            status_code=503,
+            detail="未配置 NAVIDROME_URL / NAVIDROME_USER / NAVIDROME_PASSWORD",
+        )
+
+    proxy_url = os.getenv("IMPORT_PROXY_URL", "").strip() if payload.proxy else ""
+    try:
+        result = await asyncio.to_thread(
+            import_playlists,
+            payload.urls,
+            navidrome,
+            name=payload.name,
+            dry_run=payload.dry_run,
+            loose=payload.loose,
+            proxy_url=proxy_url,
+            threshold=_env_float("PLAYLIST_MATCH_THRESHOLD", 0.86),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"歌单导入失败: {exc}") from exc
+
+    if payload.dry_run or not payload.backfill or not result["missing_tracks"]:
+        return result
+
+    job = request.app.state.jobs.submit(
+        result["missing_tracks"],
+        organize=True,
+        scan=payload.scan,
+    )
+    result["backfill_job_id"] = job["job_id"]
+    result["backfill_total"] = job["total"]
+    return result
 
 
 @app.get("/api/jobs/{job_id}")
