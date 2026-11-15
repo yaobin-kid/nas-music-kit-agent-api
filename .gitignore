@@ -6,3 +6,10 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
+music-charts/config.json
+music-charts/.spotify_token.json
+music-charts/logs/
+music-charts/reports/
+music-charts/downloads/
+music-charts/*.bak*
+music-charts/patch_charts.py

@@ -21,7 +21,7 @@ description: 通过自建的 NAS 音乐 API 搜索歌曲并下载到 NAS。当�
 
 - 一个任务最多搜索 2 次：先只搜歌名；没有结果再换关键词，不要反复拼接歌名+歌手组合。
 - 默认只取第 1 页；确需更多才翻到第 2 页，禁止连续翻页。
-- 下载只提交用户确认的那一首，禁止批量或循环下载。
+- 单曲下载只提交用户确认的那一首；批量补歌只能通过一次 `/api/library/backfill` 提交，由后台限流执行，禁止循环调用 `/api/download`。
 - 任何失败都不要自动重试；遇到 `429` 立即停止，告诉用户等待 `Retry-After` 秒。
 - 不要为了对比不同版本反复搜索同一首歌，一次性把候选展示给用户即可。
 
@@ -80,6 +80,42 @@ curl -s -X POST "$MUSIC_KIT_API_URL/api/download" \
 
 - `filename` 是实际保存的文件名；`tags` 为 `ok` 表示元数据写入成功。
 - `bitrate` 是回显的请求值，不代表实际码率。
+
+## 批量补歌与媒体库清洗（可选）
+
+用户提供一批缺失歌曲，或要求整理媒体库时：
+
+提交补歌任务：
+
+```bash
+curl -s -X POST "$MUSIC_KIT_API_URL/api/library/backfill" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tracks": [{"title": "小方桌", "artist": "小春", "source": "netease"}],
+    "organize": true,
+    "scan": true
+  }'
+```
+
+- 返回 `202` 和 `job_id`，任务在后台串行执行。
+- 用 `GET $MUSIC_KIT_API_URL/api/jobs/<job_id>` 查询进度，建议 30-60 秒一次。
+- 大批量任务不要同步等待；告诉用户任务在后台继续跑，不要重复提交同一批歌曲。
+- 批量下载同样受上游限流，耗时属于正常现象。
+
+清洗媒体库：
+
+```bash
+# 先预览
+curl -s -X POST "$MUSIC_KIT_API_URL/api/library/organize?dry_run=true"
+# 确认后执行
+curl -s -X POST "$MUSIC_KIT_API_URL/api/library/organize"
+```
+
+触发 Navidrome 扫描：
+
+```bash
+curl -s -X POST "$MUSIC_KIT_API_URL/api/navidrome/scan?wait=true"
+```
 
 ## 错误处理
 

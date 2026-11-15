@@ -93,6 +93,7 @@ class MusicApiClient:
         base_url: str,
         *,
         timeout: float = 30.0,
+        download_timeout: float = 300.0,
         retries: int = 2,
         cookie: str = "",
         bearer_token: str = "",
@@ -102,6 +103,7 @@ class MusicApiClient:
         self._base_url = base_url.rstrip("/")
         self._retries = max(0, retries)
         self._rate_limiter = rate_limiter
+        self._download_timeout = download_timeout
 
         headers = {
             "Accept": "application/json",
@@ -187,4 +189,9 @@ class MusicApiClient:
         )
 
     async def download(self, payload: dict[str, Any]) -> Any:
-        return await self._request("POST", "/api/download", json=payload)
+        return await self._request(
+            "POST",
+            "/api/download",
+            json=payload,
+            timeout=httpx.Timeout(self._download_timeout),
+        )

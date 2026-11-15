@@ -1,0 +1,92 @@
+{
+  "navidrome": {
+    "base": "http://192.168.1.10:4533",
+    "user": "CHANGE_ME",
+    "password": "CHANGE_ME",
+    "client": "marvis",
+    "api_version": "1.16.1"
+  },
+  "proxy": "http://127.0.0.1:7890",
+  "fuzzy_threshold": 0.86,
+  "output_dir": "./reports",
+  "platforms": [
+    {
+      "key": "netease_hot",
+      "enabled": true,
+      "type": "netease",
+      "id": "3778678",
+      "limit": 200,
+      "name": "榜单01·网易云热门 {date_full}",
+      "proxy": false
+    },
+    {
+      "key": "netease_surge",
+      "enabled": true,
+      "type": "netease",
+      "id": "19723756",
+      "limit": 100,
+      "name": "榜单02·网易云飙升 {date_full}",
+      "proxy": false
+    },
+    {
+      "key": "qq_hot",
+      "enabled": true,
+      "type": "qq",
+      "id": "26",
+      "limit": 100,
+      "name": "榜单03·QQ热歌 {date_full}",
+      "proxy": false
+    },
+    {
+      "key": "qishui_hot",
+      "enabled": true,
+      "type": "qishui",
+      "id": "7036274230471712007",
+      "limit": 100,
+      "name": "榜单04·汽水热歌 {date_full}",
+      "proxy": false
+    },
+    {
+      "key": "spotify_top",
+      "enabled": true,
+      "type": "spotify",
+      "id": "37i9dQZEVXbMDoHDwVN2tF",
+      "limit": 50,
+      "name": "榜单05·Spotify全球 {date_full}",
+      "proxy": true
+    },
+    {
+      "key": "apple_music",
+      "enabled": true,
+      "type": "itunes",
+      "id": "us",
+      "limit": 100,
+      "name": "榜单06·AppleMusic {date_full}",
+      "proxy": true
+    },
+    {
+      "key": "youtube_top",
+      "enabled": true,
+      "type": "youtube",
+      "url": "https://kworb.net/youtube/",
+      "limit": 50,
+      "name": "榜单07·YouTube {date_full}",
+      "proxy": true
+    }
+  ],
+  "keep_days": 1,
+  "spotify_auth": {
+    "client_id": "CHANGE_ME",
+    "client_secret": "CHANGE_ME"
+  },
+  "agent_api": {
+    "enable": true,
+    "base": "http://127.0.0.1:8080",
+    "organize": true,
+    "scan": true,
+    "wait": false,
+    "poll_interval": 30,
+    "job_timeout": 7200,
+    "max_tracks": 1000
+  }
+}

@@ -108,6 +108,28 @@ def test_search_requires_name(client):
     assert response.status_code == 422
 
 
+def test_unknown_job_returns_404(client):
+    response = client.get("/api/jobs/not-a-job")
+    assert response.status_code == 404
+
+
+def test_navidrome_scan_requires_configuration(client):
+    response = client.post("/api/navidrome/scan")
+    assert response.status_code == 503
+
+
+def test_organize_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    (tmp_path / "track.mp3").write_bytes(b"not really audio")
+
+    with TestClient(app) as test_client:
+        response = test_client.post("/api/library/organize")
+
+    assert response.status_code == 200
+    assert response.json()["scanned"] == 1
+
+
 @respx.mock
 def test_local_rate_limit_returns_429(monkeypatch):
     monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)

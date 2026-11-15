@@ -1,9 +1,11 @@
 # NAS Music Kit Agent API
 
-把 NAS 音乐播放器的两个接口（`/api/search`、`/api/download`）封装成稳定的 HTTP 服务，方便 Trae Skill 或其它自动化程序调用。
+把 NAS 音乐播放器的搜索、下载、补歌与媒体库清洗能力封装成稳定的 HTTP 服务，方便 Trae Skill、榜单程序或其它自动化程序调用。
 
 - `GET /api/search`：按关键词搜索歌曲
 - `POST /api/download`：按歌曲信息触发下载（由上游完成落盘与标签写入）
+- `POST /api/library/backfill`：批量补齐缺失歌曲，自动下载、清洗并触发 Navidrome 扫描
+- `POST /api/library/organize`：按 `Artist/Album/Artist - Title` 清洗媒体库
 - 接口地址、鉴权信息都通过环境变量配置，镜像可直接复用
 
 默认镜像只包含 agent API；`Dockerfile.bundle` 还会把原版 `juneix/nas-music-kit` 打进同一容器，适合单容器部署。
@@ -65,6 +67,56 @@ Content-Type: application/json
 
 响应中的 `bitrate` 是请求值回显，不代表实际码率。
 
+### 自动补歌
+
+```http
+POST /api/library/backfill
+Content-Type: application/json
+```
+
+```json
+{
+  "tracks": [
+    {"title": "小方桌", "artist": "小春", "source": "netease"}
+  ],
+  "organize": true,
+  "scan": true
+}
+```
+
+返回 `202`，任务在后台串行执行：
+
+```json
+{"job_id": "a1b2c3d4", "status": "queued", "total": 1}
+```
+
+查询进度：
+
+```http
+GET /api/jobs/{job_id}
+```
+
+任务流程为 `搜索 → 匹配 → 下载 → 清洗 → Navidrome 扫描`，重试同样计入上游限流。
+
+### 清洗媒体库
+
+```http
+POST /api/library/organize?dry_run=true
+```
+
+整理为：
+
+```text
+/music/Artist/Album/Artist - Title.mp3
+/music/Artist/Album/Artist - Title.lrc
+```
+
+### Navidrome 扫描
+
+```http
+POST /api/navidrome/scan?wait=true
+```
+
 ### 健康检查
 
 ```http
@@ -84,6 +136,14 @@ GET /healthz
 | `AGENT_PORT` | `8080` | 仅 bundle：agent API 监听端口 |
 | `MUSIC_API_RATE_LIMIT` | `40` | 限流窗口内允许的上游请求数，`0` 为关闭 |
 | `MUSIC_API_RATE_WINDOW` | `300` | 限流窗口（秒） |
+| `MUSIC_API_DOWNLOAD_TIMEOUT` | `300` | 下载请求超时（秒） |
+| `LIBRARY_DIR` | `/music` | 媒体库根目录，清洗与补歌共用 |
+| `MATCH_SOURCE` | `netease` | 补歌默认搜索音源 |
+| `MATCH_THRESHOLD` | `0.9` | 补歌标题匹配阈值，越高越严格 |
+| `NAVIDROME_URL` | 空 | Navidrome 地址，例如 `http://127.0.0.1:4533` |
+| `NAVIDROME_USER` | 空 | Navidrome 管理员账号 |
+| `NAVIDROME_PASSWORD` | 空 | Navidrome 管理员密码 |
+| `NAVIDROME_SCAN_WAIT` | `true` | 扫描后是否等待完成 |
 
 ## 限流
 
@@ -98,9 +158,23 @@ GET /healthz
 - 限流只作用于经过本服务的请求；直接访问 juneix 的 `8848` 网页不受此限制
 - 限流状态在进程内存里，本镜像只启动一个 uvicorn 进程；如果部署多个副本，上游额度是共享的，需要自行降低每个副本的限制
 
+## 自动补歌与媒体库清洗
+
+补歌任务由后台单 worker 串行执行，天然受上游限流约束，适合一次提交、慢慢跑完。
+
+清洗规则：
+
+- 目录结构：`LIBRARY_DIR/Artist/Album/Artist - Title.ext`
+- 标签乱码用 `ftfy` 修复；检测到乱码时回写标题、歌手、专辑
+- 同名 `.lrc` 随歌曲一起移动，统一转成 UTF-8
+- 没有 `.lrc` 时，把内嵌歌词导出为 UTF-8 `.lrc`
+- 文件名非法字符替换，重名自动追加 `(2)`
+- `dry_run=true` 只预览，不改动文件
+- 清洗完成后可自动调用 Navidrome `startScan`
+
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.3.0` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.4.0` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -120,18 +194,29 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    volumes:
+      - ./music:/music
     environment:
       MUSIC_API_BASE_URL: http://192.168.1.10:8848   # 改成你的音乐 API 地址
       MUSIC_API_TIMEOUT: "30"
+      MUSIC_API_DOWNLOAD_TIMEOUT: "300"
       MUSIC_API_RETRIES: "2"
       MUSIC_API_RATE_LIMIT: "40"
       MUSIC_API_RATE_WINDOW: "300"
+      LIBRARY_DIR: /music
+      MATCH_SOURCE: netease
+      MATCH_THRESHOLD: "0.9"
+      NAVIDROME_URL: http://192.168.1.10:4533
+      NAVIDROME_USER: admin
+      NAVIDROME_PASSWORD: change-me
+      NAVIDROME_SCAN_WAIT: "true"
 ```
 
 说明：
 
 - 音乐服务在同一个 compose 网络时，地址可以写服务名，例如 `http://nas-music-kit:8848`。
 - 只有走绿联隧道等带登录态的地址，才需要额外添加 `MUSIC_API_COOKIE` 或 `MUSIC_API_BEARER_TOKEN`。
+- `./music` 必须和音乐服务的实际下载目录一致，否则清洗找不到刚下载的文件。
 - 仓库文件：[docker-compose.yml](./docker-compose.yml)。
 
 ### 方案 B：两个容器 + host 网络（推荐）
@@ -157,17 +242,27 @@ services:
     restart: unless-stopped
     depends_on:
       - nas-music-kit
+    volumes:
+      - ./music:/music
     environment:
       PORT: 8080
       MUSIC_API_BASE_URL: http://127.0.0.1:8848
       MUSIC_API_RATE_LIMIT: "40"
       MUSIC_API_RATE_WINDOW: "300"
+      LIBRARY_DIR: /music
+      MATCH_SOURCE: netease
+      MATCH_THRESHOLD: "0.9"
+      NAVIDROME_URL: http://127.0.0.1:4533
+      NAVIDROME_USER: admin
+      NAVIDROME_PASSWORD: change-me
+      NAVIDROME_SCAN_WAIT: "true"
 ```
 
 说明：
 
 - `network_mode: host` 下不要写 `ports`，8848 和 8080 会直接占用宿主机端口。
 - 端口冲突时修改 `PORT`，并同步修改 `MUSIC_API_BASE_URL` 里的端口。
+- 两个容器都挂载同一个 `./music`，下载和清洗才能看到同一批文件。
 - 仓库文件：[docker-compose.host.yml](./docker-compose.host.yml)。
 
 ### 方案 C：单镜像 bundle
@@ -188,9 +283,17 @@ services:
       AGENT_PORT: 8080
       MUSIC_API_BASE_URL: http://127.0.0.1:8848
       MUSIC_API_TIMEOUT: "30"
+      MUSIC_API_DOWNLOAD_TIMEOUT: "300"
       MUSIC_API_RETRIES: "2"
       MUSIC_API_RATE_LIMIT: "40"
       MUSIC_API_RATE_WINDOW: "300"
+      LIBRARY_DIR: /music
+      MATCH_SOURCE: netease
+      MATCH_THRESHOLD: "0.9"
+      NAVIDROME_URL: http://192.168.1.10:4533   # 桥接网络不能写 127.0.0.1
+      NAVIDROME_USER: admin
+      NAVIDROME_PASSWORD: change-me
+      NAVIDROME_SCAN_WAIT: "true"
       TZ: Asia/Shanghai
     volumes:
       - ./music:/music
@@ -199,6 +302,7 @@ services:
 说明：
 
 - 左侧端口被占用时只改映射，例如 `18848:8848`；`PORT`、`AGENT_PORT` 保持容器内端口不变。
+- bundle 是桥接网络，`NAVIDROME_URL` 不能写 `127.0.0.1`，要填 NAS 的局域网地址。
 - 仓库文件：[docker-compose.bundle.yml](./docker-compose.bundle.yml)。
 - bundle 跟随上游镜像版本，juneix 更新后重新构建或拉取新版本即可。
 
@@ -225,7 +329,10 @@ curl -G "http://127.0.0.1:8080/api/search" \
 | `MUSIC_KIT_PORT` | host 方案里音乐服务的端口 |
 | `AGENT_PORT` | host 方案里 agent 容器的监听端口 |
 | `MUSIC_KIT_HOST_PORT` | bundle 方案里音乐服务映射到宿主机的端口 |
-| `MUSIC_DIR` | 音乐下载目录 |
+| `MUSIC_DIR` | 音乐下载与清洗目录 |
+| `LIBRARY_DIR` | 容器内媒体库目录，默认 `/music` |
+| `MATCH_SOURCE` / `MATCH_THRESHOLD` | 补歌搜索音源与匹配阈值 |
+| `NAVIDROME_URL` / `NAVIDROME_USER` / `NAVIDROME_PASSWORD` | Navidrome 扫描配置 |
 
 ### 自行构建
 
@@ -241,6 +348,34 @@ docker build -f Dockerfile.bundle \
 
 构建参数只提供默认值，运行时仍可用 `-e MUSIC_API_BASE_URL=...` 覆盖。
 
+## 对接 music-charts
+
+`music-charts/` 是榜单/歌单匹配程序。匹配结束后，未匹配歌曲会自动提交给本服务：
+
+1. `charts.py` / `playlist_import.py` 读取 `config.json` 里的 `agent_api`
+2. 调用 `POST /api/library/backfill` 批量提交缺失歌曲
+3. 本服务后台搜索、下载，完成后清洗并触发 Navidrome 扫描
+4. 下一次榜单运行时，已下载的歌曲会正常匹配进播放列表
+
+> 补歌任务是后台异步的：本次榜单的播放列表不会立刻包含新歌，等任务完成并扫描后，下一次运行会自动纳入。需要立即重建时，等 `wait=true` 的任务完成后再执行一次 `charts.py`。
+
+配置参考 [config.example.json](./music-charts/config.example.json)，复制为 `config.json` 后填写：
+
+```json
+"agent_api": {
+  "enable": true,
+  "base": "http://127.0.0.1:8080",
+  "organize": true,
+  "scan": true,
+  "wait": false
+}
+```
+
+- `wait=false`：提交任务后脚本退出，适合 cron，任务在容器里继续跑
+- `wait=true`：脚本等待任务完成；大批量会很慢
+- `max_tracks` 默认 1000，避免一次提交过多
+- `config.json` 含 Navidrome 密码和 Spotify 密钥，已在 `.gitignore` 中排除，不要提交
+
 ## Skill
 
 `skill/nas-music-kit/SKILL.md` 是给 Trae 使用的技能说明，流程为：
@@ -249,6 +384,8 @@ docker build -f Dockerfile.bundle \
 2. 调用 `/api/search` 搜索候选项
 3. 让用户确认要下载的歌曲
 4. 调用 `/api/download`，返回文件名与写入状态
+
+批量补齐缺失歌曲时，改用 `/api/library/backfill` 提交后台任务，再轮询 `/api/jobs/{job_id}`；不要逐首循环调用下载接口。
 
 安装时把 `skill/nas-music-kit` 目录复制到 Trae 的 Skills 目录（全局或项目级均可），并确保 `MUSIC_KIT_API_URL` 可访问。
 
@@ -278,8 +415,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。
