@@ -1,6 +1,6 @@
 ---
 name: nas-music-kit
-description: 通过自建的 NAS 音乐 API 搜索、下载歌曲，批量补齐 Navidrome 缺失歌曲，按 Artist/Album 清洗媒体库并触发 Navidrome 扫描。当用户要搜歌、点歌下载、补齐歌单缺失、整理音乐目录或同步 Navidrome 时使用。
+description: 通过自建的 NAS 音乐 API 搜索、下载歌曲，导入外部歌单链接并匹配/补齐 Navidrome 歌曲，按 Artist/Album 清洗媒体库并触发 Navidrome 扫描。当用户要搜歌、点歌下载、导入歌单、补齐缺失、整理音乐目录或同步 Navidrome 时使用。
 ---
 
 # NAS 音乐库
@@ -27,12 +27,58 @@ description: 通过自建的 NAS 音乐 API 搜索、下载歌曲，批量补齐
 
 | 用户需求 | 使用接口 |
 | --- | --- |
+| 给歌单/榜单链接，自动匹配并建列表 | `playlist_import.py` |
 | 找歌、看候选 | `GET /api/search` |
 | 下载某一首 | `POST /api/download` |
 | 补齐一批缺失歌曲 | `POST /api/library/backfill` |
 | 查看补歌进度 | `GET /api/jobs/{job_id}` |
 | 整理媒体库 | `POST /api/library/organize` |
 | 让 Navidrome 重新扫描 | `POST /api/navidrome/scan` |
+
+## 导入外部歌单/榜单链接
+
+用户直接给出歌单或榜单链接时，优先使用 `playlist_import.py`，不要逐首搜索或下载。
+
+支持平台：网易云、QQ音乐、Spotify、汽水音乐（含短链）。
+
+脚本默认在 NAS 上：
+
+```bash
+cd /volume1/docker/marvis/music-charts
+```
+
+先预览（只抓取和匹配，不创建列表、不补歌）：
+
+```bash
+python3 playlist_import.py "<歌单链接>" --dry-run
+```
+
+正式导入：
+
+```bash
+python3 playlist_import.py "<链接1>" "<链接2>"
+```
+
+常用参数：
+
+- `--name "列表名"`：自定义 Navidrome 播放列表名；多个链接时不要都指定同一个名字。
+- `--loose`：宽松匹配；默认严格匹配，歌名精确且歌手有交集才收录。
+- `--proxy`：Spotify / 汽水抓取需要代理时使用。
+
+执行后的行为：
+
+1. 立即匹配本地曲库，创建或重建 Navidrome 播放列表。
+2. 未匹配歌曲写入 `reports/歌单未匹配-*.csv`。
+3. 所有链接处理完后，自动把未匹配歌曲提交给 `/api/library/backfill`。
+4. agent 后台下载、清洗，最后触发 Navidrome 扫描。
+5. 日志出现 `[agent] 已提交补歌任务 ...` 就表示已接上，不要重复提交。
+
+注意：
+
+- 本次播放列表只包含当时已匹配的歌；补歌完成后再执行一次相同的导入命令，列表会重建并包含新下载的歌。
+- `--dry-run` 不会提交补歌任务。
+- 如果当前环境无法执行 NAS 上的 shell，把完整命令交给用户执行，不要自己逐首调用搜索/下载。
+- `config.json` 含 Navidrome 密码和平台密钥，不要读取或打印内容。
 
 ## 调用配额（重要）
 
@@ -233,6 +279,7 @@ curl -s -X POST "$MUSIC_KIT_API_URL/api/navidrome/scan?wait=true"
 
 - 不要直接调用 juneix 的 `8848` 上游接口，绕过限流。
 - 不要循环调用 `/api/download` 批量下载。
+- 用户给的是歌单/榜单链接时，不要逐首调用 `/api/search`，直接用 `playlist_import.py`。
 - 不要对 `429`、`503` 自动重试。
 - 不要重复提交同一个补歌任务。
 - 不要在任务未完成时宣称已下载、已清洗或已同步。

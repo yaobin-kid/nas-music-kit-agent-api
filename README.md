@@ -376,6 +376,8 @@ docker build -f Dockerfile.bundle \
 - `max_tracks` 默认 1000，避免一次提交过多
 - `config.json` 含 Navidrome 密码和 Spotify 密钥，已在 `.gitignore` 中排除，不要提交
 
+外部歌单/榜单链接导入见 [music-charts/README-playlist-import.md](./music-charts/README-playlist-import.md)：支持网易云、QQ音乐、Spotify、汽水音乐，匹配完成后同样会自动提交缺失歌曲。
+
 ## Skill
 
 `skill/nas-music-kit/SKILL.md` 是给 Trae 使用的技能说明，流程为：
