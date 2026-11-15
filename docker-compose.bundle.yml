@@ -19,8 +19,8 @@ services:
       MUSIC_API_RATE_WINDOW: ${MUSIC_API_RATE_WINDOW:-300}
       MUSIC_API_COOKIE: ${MUSIC_API_COOKIE:-}
       MUSIC_API_BEARER_TOKEN: ${MUSIC_API_BEARER_TOKEN:-}
-      LIBRARY_DIR: /music
-      DOWNLOAD_DIR: /downloads
+      LIBRARY_DIR: /library
+      DOWNLOAD_DIR: /music
       MATCH_SOURCE: ${MATCH_SOURCE:-netease}
       MATCH_THRESHOLD: ${MATCH_THRESHOLD:-0.9}
       PLAYLIST_MATCH_THRESHOLD: ${PLAYLIST_MATCH_THRESHOLD:-0.86}
@@ -34,4 +34,4 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ${MUSIC_DIR:-./music}:/music
-      - ${DOWNLOADS_DIR:-./downloads}:/downloads
+      - ${LIBRARY_HOST_DIR:-./library}:/library

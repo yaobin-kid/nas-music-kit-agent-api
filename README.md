@@ -147,9 +147,11 @@ POST /api/library/organize?dry_run=true
 整理为：
 
 ```text
-/music/Artist/Album/Artist - Title.mp3
-/music/Artist/Album/Artist - Title.lrc
+/library/Artist/Album/Artist - Title.mp3
+/library/Artist/Album/Artist - Title.lrc
 ```
+
+`LIBRARY_DIR` 默认 `/music`，推荐在 compose 里设为 `/library`。
 
 ### Navidrome 扫描
 
@@ -161,6 +163,65 @@ POST /api/navidrome/scan?wait=true
 
 ```http
 GET /healthz
+```
+
+## API 工作流程
+
+### 1. 搜索与单曲下载
+
+```text
+GET /api/search
+  → 返回候选列表
+POST /api/download
+  → juneix 下载并写入 /music/<歌手 - 歌名>.mp3
+  → 此时还没进媒体库
+POST /api/library/organize
+  → 从 /music 移动到 LIBRARY_DIR/Artist/Album/
+```
+
+下载接口只返回元数据，真正的文件在 `/music`；需要整理时再调用 organize，补歌任务会自动执行这一步。
+
+### 2. 批量补歌（异步）
+
+```text
+POST /api/library/backfill
+  → 返回 202 + job_id
+  → 后台单 worker 串行执行：
+      searching：搜索 → 匹配 → 下载到 /music
+      organizing：扫描 /music，移动到 LIBRARY_DIR
+      scanning：调用 Navidrome startScan
+GET /api/jobs/{job_id}
+  → 查询 status / stage / processed / downloaded / not_found / failed
+```
+
+- 任务串行执行，重试也计入上游限流
+- `not_found` 表示上游没有可信匹配，不会自动换关键词重试
+- 只有 `status=completed` 才算结束
+
+### 3. 导入外部歌单
+
+```text
+POST /api/playlist/import
+  → 解析链接，抓取曲目
+  → 读取 Navidrome 全库并匹配
+  → 已匹配的歌曲立即创建/重建播放列表
+  → 未匹配歌曲放进 missing_tracks，并提交 backfill 任务
+  → 返回 backfill_job_id
+GET /api/jobs/{backfill_job_id}
+  → 补歌完成后自动清洗并扫描
+再次调用 POST /api/playlist/import
+  → 重建播放列表，包含刚补进来的歌
+```
+
+### 4. 清洗与扫描
+
+```text
+POST /api/library/organize?dry_run=true
+  → 只统计 planned，不移动
+POST /api/library/organize
+  → 移动文件、修复乱码标签、歌词转 UTF-8
+POST /api/navidrome/scan
+  → 让 Navidrome 重新扫描 LIBRARY_DIR
 ```
 
 ## 配置
@@ -177,8 +238,8 @@ GET /healthz
 | `MUSIC_API_RATE_LIMIT` | `40` | 限流窗口内允许的上游请求数，`0` 为关闭 |
 | `MUSIC_API_RATE_WINDOW` | `300` | 限流窗口（秒） |
 | `MUSIC_API_DOWNLOAD_TIMEOUT` | `300` | 下载请求超时（秒） |
-| `LIBRARY_DIR` | `/music` | 容器内媒体库目录，清洗后的最终目录，Navidrome 应扫描这里 |
-| `DOWNLOAD_DIR` | 同 `LIBRARY_DIR` | 容器内原始下载目录，juneix 写这里，agent 从这里清洗 |
+| `LIBRARY_DIR` | `/music` | 容器内清洗后的媒体库目录，建议设为 `/library`，Navidrome 扫描这里 |
+| `DOWNLOAD_DIR` | `/music` | nas-music-kit 的下载目录，固定为 `/music`，一般不要改 |
 | `MATCH_SOURCE` | `netease` | 补歌默认搜索音源 |
 | `MATCH_THRESHOLD` | `0.9` | 补歌标题匹配阈值，越高越严格 |
 | `NAVIDROME_URL` | 空 | Navidrome 地址，例如 `http://127.0.0.1:4533` |
@@ -192,18 +253,20 @@ GET /healthz
 
 ## 目录结构
 
-推荐把“原始下载”和“清洗后的媒体库”分开，避免未整理文件和正式库混在一起：
+nas-music-kit 的下载目录固定是 `/music`，这个不要改。Agent 只额外定义一个清洗后的媒体库目录：
 
 ```text
-/downloads        juneix 下载的原始文件
-/music           清洗后的媒体库，结构为 Artist/Album/Artist - Title.mp3
+/music       nas-music-kit 下载的原始文件（固定）
+/library     清洗后的媒体库，结构为 Artist/Album/Artist - Title.mp3
 ```
 
-- `DOWNLOAD_DIR`：下载目录，juneix 写这里，agent 从这里读取并清洗
-- `LIBRARY_DIR`：媒体库目录，agent 清洗后写入这里，Navidrome 扫描这里
-- 清洗时音频和同名 `.lrc` 会一起从 `DOWNLOAD_DIR` 移动到 `LIBRARY_DIR`
-- 只挂一个目录也能用：不设置 `DOWNLOAD_DIR` 时默认等于 `LIBRARY_DIR`，行为和旧版一致
+- `DOWNLOAD_DIR`：固定 `/music`，nas-music-kit 写这里，agent 从这里读取并清洗
+- `LIBRARY_DIR`：清洗后的媒体库，建议 `/library`，Navidrome 扫描这里
+- 清洗时音频和同名 `.lrc` 会一起从 `/music` 移动到 `/library`
+- 想保持旧行为可以让 `LIBRARY_DIR=/music`，此时就是原地整理
 - `GET /healthz` 会返回当前实际使用的 `library_dir` 和 `download_dir`
+
+> 旧部署升级：Navidrome 原来扫描 `./music` 的，要改成扫描 `./library`；第一次执行 `organize` 会把 `/music` 里的已有文件全部搬到 `/library`。
 
 ## 限流
 
@@ -225,7 +288,7 @@ GET /healthz
 清洗规则：
 
 - 目录结构：`LIBRARY_DIR/Artist/Album/Artist - Title.ext`
-- 原始下载在 `DOWNLOAD_DIR`，清洗时自动移动到 `LIBRARY_DIR`；两者相同时原地整理
+- 原始下载固定在 `/music`，清洗时自动移动到 `LIBRARY_DIR`；两者相同时原地整理
 - 标签乱码用 `ftfy` 修复；检测到乱码时回写标题、歌手、专辑
 - 同名 `.lrc` 随歌曲一起移动，统一转成 UTF-8
 - 没有 `.lrc` 时，把内嵌歌词导出为 UTF-8 `.lrc`
@@ -235,7 +298,7 @@ GET /healthz
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.6.0` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.7.0` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -257,7 +320,7 @@ services:
       - "8080:8080"
     volumes:
       - ./music:/music
-      - ./downloads:/downloads
+      - ./library:/library
     environment:
       MUSIC_API_BASE_URL: http://192.168.1.10:8848   # 改成你的音乐 API 地址
       MUSIC_API_TIMEOUT: "30"
@@ -265,8 +328,8 @@ services:
       MUSIC_API_RETRIES: "2"
       MUSIC_API_RATE_LIMIT: "40"
       MUSIC_API_RATE_WINDOW: "300"
-      LIBRARY_DIR: /music
-      DOWNLOAD_DIR: /downloads
+      LIBRARY_DIR: /library
+      DOWNLOAD_DIR: /music
       MATCH_SOURCE: netease
       MATCH_THRESHOLD: "0.9"
       PLAYLIST_MATCH_THRESHOLD: "0.86"
@@ -283,8 +346,8 @@ services:
 
 - 音乐服务在同一个 compose 网络时，地址可以写服务名，例如 `http://nas-music-kit:8848`。
 - 只有走绿联隧道等带登录态的地址，才需要额外添加 `MUSIC_API_COOKIE` 或 `MUSIC_API_BEARER_TOKEN`。
-- `./music` 是清洗后的媒体库，Navidrome 应扫描这里。
-- `./downloads` 必须和音乐服务的实际下载目录一致，否则清洗找不到刚下载的文件。
+- `./music` 是 nas-music-kit 的下载目录，不要改；必须和音乐服务的下载目录一致。
+- `./library` 是清洗后的媒体库，Navidrome 应扫描这里。
 - 仓库文件：[docker-compose.yml](./docker-compose.yml)。
 
 ### 方案 B：两个容器 + host 网络（推荐）
@@ -300,10 +363,8 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8848
-      DOWNLOAD_DIR: /downloads
     volumes:
       - ./music:/music
-      - ./downloads:/downloads
 
   music-kit-agent:
     image: ghcr.io/yaobin-kid/nas-music-kit-agent-api:latest
@@ -314,14 +375,14 @@ services:
       - nas-music-kit
     volumes:
       - ./music:/music
-      - ./downloads:/downloads
+      - ./library:/library
     environment:
       PORT: 8080
       MUSIC_API_BASE_URL: http://127.0.0.1:8848
       MUSIC_API_RATE_LIMIT: "40"
       MUSIC_API_RATE_WINDOW: "300"
-      LIBRARY_DIR: /music
-      DOWNLOAD_DIR: /downloads
+      LIBRARY_DIR: /library
+      DOWNLOAD_DIR: /music
       MATCH_SOURCE: netease
       MATCH_THRESHOLD: "0.9"
       PLAYLIST_MATCH_THRESHOLD: "0.86"
@@ -338,8 +399,9 @@ services:
 
 - `network_mode: host` 下不要写 `ports`，8848 和 8080 会直接占用宿主机端口。
 - 端口冲突时修改 `PORT`，并同步修改 `MUSIC_API_BASE_URL` 里的端口。
-- 两个容器都挂载 `./music` 和 `./downloads`：juneix 写 `/downloads`，agent 清洗后写入 `/music`。
-- Navidrome 只扫描 `./music`，不要扫描 `./downloads`。
+- 两个容器都挂载 `./music`：juneix 仍下载到 `/music`。
+- agent 额外挂载 `./library`，清洗时把文件从 `/music` 移到 `/library`。
+- Navidrome 只扫描 `./library`。
 - 仓库文件：[docker-compose.host.yml](./docker-compose.host.yml)。
 
 ### 方案 C：单镜像 bundle
@@ -364,8 +426,8 @@ services:
       MUSIC_API_RETRIES: "2"
       MUSIC_API_RATE_LIMIT: "40"
       MUSIC_API_RATE_WINDOW: "300"
-      LIBRARY_DIR: /music
-      DOWNLOAD_DIR: /downloads
+      LIBRARY_DIR: /library
+      DOWNLOAD_DIR: /music
       MATCH_SOURCE: netease
       MATCH_THRESHOLD: "0.9"
       PLAYLIST_MATCH_THRESHOLD: "0.86"
@@ -379,14 +441,14 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - ./music:/music
-      - ./downloads:/downloads
+      - ./library:/library
 ```
 
 说明：
 
 - 左侧端口被占用时只改映射，例如 `18848:8848`；`PORT`、`AGENT_PORT` 保持容器内端口不变。
 - bundle 是桥接网络，`NAVIDROME_URL` 不能写 `127.0.0.1`，要填 NAS 的局域网地址。
-- 容器内 juneix 写 `/downloads`，agent 清洗后写入 `/music`；Navidrome 扫描 `./music`。
+- 容器内 juneix 仍下载到 `/music`，agent 清洗后写入 `/library`；Navidrome 扫描 `./library`。
 - 仓库文件：[docker-compose.bundle.yml](./docker-compose.bundle.yml)。
 - bundle 跟随上游镜像版本，juneix 更新后重新构建或拉取新版本即可。
 
@@ -413,14 +475,127 @@ curl -G "http://127.0.0.1:8080/api/search" \
 | `MUSIC_KIT_PORT` | host 方案里音乐服务的端口 |
 | `AGENT_PORT` | host 方案里 agent 容器的监听端口 |
 | `MUSIC_KIT_HOST_PORT` | bundle 方案里音乐服务映射到宿主机的端口 |
-| `MUSIC_DIR` | 宿主机上的媒体库目录，挂载为容器内 `/music`，Navidrome 扫描这里 |
-| `DOWNLOADS_DIR` | 宿主机上的原始下载目录，挂载为容器内 `/downloads` |
-| `LIBRARY_DIR` | 容器内媒体库路径，compose 里固定为 `/music`，一般不用改 |
-| `DOWNLOAD_DIR` | 容器内下载路径，compose 里固定为 `/downloads`，一般不用改 |
+| `MUSIC_DIR` | 宿主机上的 nas-music-kit 下载目录，挂载为容器内 `/music` |
+| `LIBRARY_HOST_DIR` | 宿主机上的清洗后媒体库目录，挂载为容器内 `/library` |
+| `LIBRARY_DIR` | 容器内媒体库路径，compose 里设为 `/library` |
+| `DOWNLOAD_DIR` | 容器内下载路径，固定 `/music`，一般不用改 |
 | `MATCH_SOURCE` / `MATCH_THRESHOLD` | 补歌搜索音源与匹配阈值 |
 | `NAVIDROME_URL` / `NAVIDROME_USER` / `NAVIDROME_PASSWORD` | Navidrome 扫描配置 |
 
-`MUSIC_DIR` 和 `DOWNLOADS_DIR` 是宿主机路径，写在 `.env` 里；`LIBRARY_DIR` 和 `DOWNLOAD_DIR` 是容器内路径，写在 compose 的 `environment` 里。
+`MUSIC_DIR` 和 `LIBRARY_HOST_DIR` 是宿主机路径，写在 `.env` 里；`LIBRARY_DIR` 和 `DOWNLOAD_DIR` 是容器内路径，写在 compose 的 `environment` 里。
+
+### 功能自检（按顺序）
+
+以下命令假设 agent 地址是 `http://127.0.0.1:8080`，宿主机下载目录是 `./music`，清洗目录是 `./library`。
+
+**1. 健康检查**
+
+```bash
+curl http://127.0.0.1:8080/healthz
+```
+
+预期：`status=ok`，并且 `download_dir` 是 `/music`，`library_dir` 是 `/library`。
+
+**2. 搜索**
+
+```bash
+curl -sG "http://127.0.0.1:8080/api/search" \
+  --data-urlencode "source=netease" \
+  --data-urlencode "name=小方桌" \
+  --data-urlencode "pages=1"
+```
+
+预期：返回数组，至少有 `id`、`name`、`artist`、`pic_id`、`source`。返回 `429` 说明触发限流，等 `Retry-After` 秒再试。
+
+**3. 下载单曲**
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/api/download" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "netease",
+    "id": "3412527335",
+    "name": "掉漆小方桌",
+    "artist": "小春",
+    "album": "",
+    "pic_id": "109951173651495877",
+    "br": "999",
+    "lyric": true,
+    "vip": false
+  }'
+```
+
+预期：`status=success`，并且宿主机 `./music` 里出现 `小春 - 掉漆小方桌.mp3`。
+
+**4. 清洗预览**
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/api/library/organize?dry_run=true"
+```
+
+预期：`download_dir=/music`、`library_dir=/library`，`planned` 大于 0，文件没有移动。
+
+**5. 执行清洗**
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/api/library/organize"
+```
+
+预期：`moved` 大于 0，文件出现在 `./library/歌手/专辑/歌手 - 歌名.mp3`，`./music` 里对应文件消失。第一次执行会把 `/music` 里已有文件全部整理到 `/library`。
+
+**6. 导入歌单（预览）**
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/api/playlist/import" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": ["https://music.163.com/playlist?id=3778678"],
+    "dry_run": true,
+    "backfill": false
+  }'
+```
+
+预期：`playlists[0]` 里有 `total`、`matched`、`missing`，且不会创建列表、不会补歌。确认能匹配后去掉 `dry_run` 再执行一次。
+
+**7. 补歌任务**
+
+用一首你确定不在库里的歌测试：
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/api/library/backfill" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tracks": [{"title": "不存在的歌名", "artist": "测试歌手", "source": "netease"}],
+    "organize": true,
+    "scan": false
+  }'
+```
+
+预期：返回 `202` 和 `job_id`，然后：
+
+```bash
+curl -s "http://127.0.0.1:8080/api/jobs/<job_id>"
+```
+
+轮询到 `status=completed`，`results[0].status` 应为 `not_found` 或 `downloaded`。
+
+**8. Navidrome 扫描**
+
+```bash
+curl -s -X POST "http://127.0.0.1:8080/api/navidrome/scan?wait=true"
+```
+
+预期：返回 `started` / `waited` / `count`。返回 `503` 表示 `NAVIDROME_*` 没配置。
+
+**9. 观察日志**
+
+```bash
+docker compose logs -f music-kit-agent
+```
+
+可以看到上游 `/api/search`、`/api/download` 调用，以及后台任务的 `searching → organizing → scanning` 阶段。
+
+常见状态码：`200` 成功、`202` 已提交任务、`422` 参数错误、`429` 限流、`502` 上游失败、`503` Navidrome 未配置。
 
 ### 自行构建
 
@@ -505,8 +680,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.6.0
-git push origin v0.6.0
+git tag v0.7.0
+git push origin v0.7.0
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。

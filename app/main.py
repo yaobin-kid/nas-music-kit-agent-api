@@ -120,7 +120,7 @@ async def lifespan(app: FastAPI):
         )
 
     app.state.library_dir = os.getenv("LIBRARY_DIR", "/music")
-    app.state.download_dir = os.getenv("DOWNLOAD_DIR", app.state.library_dir)
+    app.state.download_dir = os.getenv("DOWNLOAD_DIR", "/music")
     if not os.path.isdir(app.state.library_dir):
         raise RuntimeError(f"LIBRARY_DIR 不存在: {app.state.library_dir}")
     if not os.path.isdir(app.state.download_dir):

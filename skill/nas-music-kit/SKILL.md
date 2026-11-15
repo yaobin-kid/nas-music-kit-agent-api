@@ -248,14 +248,14 @@ curl -s -X POST "$MUSIC_KIT_API_URL/api/library/organize?dry_run=true"
 curl -s -X POST "$MUSIC_KIT_API_URL/api/library/organize"
 ```
 
-目标结构（实际根目录由服务端 `LIBRARY_DIR` 决定，默认 `/music`）：
+目标结构（实际根目录由服务端 `LIBRARY_DIR` 决定，推荐 `/library`）：
 
 ```text
-/music/Artist/Album/Artist - Title.mp3
-/music/Artist/Album/Artist - Title.lrc
+/library/Artist/Album/Artist - Title.mp3
+/library/Artist/Album/Artist - Title.lrc
 ```
 
-原始下载在服务端 `DOWNLOAD_DIR`，清洗时会自动移动到 `LIBRARY_DIR`；Skill 不需要关心宿主机路径，可通过 `/healthz` 查看当前目录。
+nas-music-kit 固定下载到 `/music`，清洗时会自动移动到 `LIBRARY_DIR`；Skill 不需要关心宿主机路径，可通过 `/healthz` 查看当前目录。
 
 清洗规则：
 
