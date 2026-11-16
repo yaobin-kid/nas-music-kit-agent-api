@@ -166,18 +166,22 @@ def fetch_spotify(cfg, proxy):
 
 
 def fetch_itunes(cfg, proxy):
+    """Apple Music 榜单，按 storefront 地区抓取（us/tw/hk/sg/my/jp/kr ...）"""
     limit = int(cfg.get("limit", 100))
     country = cfg.get("id") or "us"
     s = _session(cfg.get("proxy", True), proxy)
-    r = s.get(f"https://itunes.apple.com/{country}/rss/topsongs/limit={limit}/json",
-              timeout=30)
+    url = (f"https://rss.marketingtools.apple.com/api/v2/{country}/"
+           f"music/most-played/{limit}/songs.json")
+    r = s.get(url, timeout=30)
     feed = (r.json() or {}).get("feed") or {}
     out = []
-    for e in (feed.get("entry") or [])[:limit]:
-        title = (e.get("im:name") or {}).get("label", "")
-        artist = (e.get("im:artist") or {}).get("label", "")
+    for e in (feed.get("results") or [])[:limit]:
+        title = (e.get("name") or "").strip()
+        artist = (e.get("artistName") or "").strip()
         if title:
             out.append({"title": title, "artist": artist})
+    if not out:
+        raise RuntimeError(f"Apple Music 榜单为空（地区 {country}）")
     return out
 
 

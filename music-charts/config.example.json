@@ -56,12 +56,66 @@
       "proxy": true
     },
     {
-      "key": "apple_music",
+      "key": "apple_music_us",
       "enabled": true,
       "type": "itunes",
       "id": "us",
       "limit": 100,
-      "name": "榜单06·AppleMusic {date_full}",
+      "name": "榜单06·AppleMusic(美国) {date_full}",
+      "proxy": true
+    },
+    {
+      "key": "apple_music_tw",
+      "enabled": true,
+      "type": "itunes",
+      "id": "tw",
+      "limit": 100,
+      "name": "榜单07·AppleMusic(台湾) {date_full}",
+      "proxy": true
+    },
+    {
+      "key": "apple_music_hk",
+      "enabled": true,
+      "type": "itunes",
+      "id": "hk",
+      "limit": 100,
+      "name": "榜单08·AppleMusic(香港) {date_full}",
+      "proxy": true
+    },
+    {
+      "key": "apple_music_sg",
+      "enabled": true,
+      "type": "itunes",
+      "id": "sg",
+      "limit": 100,
+      "name": "榜单09·AppleMusic(新加坡) {date_full}",
+      "proxy": true
+    },
+    {
+      "key": "apple_music_my",
+      "enabled": true,
+      "type": "itunes",
+      "id": "my",
+      "limit": 100,
+      "name": "榜单10·AppleMusic(马来西亚) {date_full}",
+      "proxy": true
+    },
+    {
+      "key": "apple_music_jp",
+      "enabled": true,
+      "type": "itunes",
+      "id": "jp",
+      "limit": 100,
+      "name": "榜单11·AppleMusic(日本) {date_full}",
+      "proxy": true
+    },
+    {
+      "key": "apple_music_kr",
+      "enabled": true,
+      "type": "itunes",
+      "id": "kr",
+      "limit": 100,
+      "name": "榜单12·AppleMusic(韩国) {date_full}",
       "proxy": true
     },
     {
@@ -70,7 +124,7 @@
       "type": "youtube",
       "url": "https://kworb.net/youtube/",
       "limit": 50,
-      "name": "榜单07·YouTube {date_full}",
+      "name": "榜单13·YouTube {date_full}",
       "proxy": true
     }
   ],

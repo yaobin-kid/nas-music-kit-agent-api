@@ -650,6 +650,21 @@ docker build -f Dockerfile.bundle \
 
 > 补歌任务是后台异步的：本次榜单的播放列表不会立刻包含新歌，等任务完成并扫描后，下一次运行会自动纳入。需要立即重建时，等补歌任务完成后再调用一次 `POST /api/charts/refresh`。
 
+Apple Music 按地区拆成多个榜单，`type` 为 `itunes`，`id` 填 Apple Music storefront 代码：
+
+```text
+榜单06·AppleMusic(美国)      id: us
+榜单07·AppleMusic(台湾)      id: tw
+榜单08·AppleMusic(香港)      id: hk
+榜单09·AppleMusic(新加坡)    id: sg
+榜单10·AppleMusic(马来西亚)  id: my
+榜单11·AppleMusic(日本)      id: jp
+榜单12·AppleMusic(韩国)      id: kr
+榜单13·YouTube
+```
+
+想增删地区只改 `platforms`：复制一段 `itunes` 配置，改 `key`、`id` 和 `name`，再把后面的榜单序号顺延即可。
+
 配置参考 [config.example.json](./music-charts/config.example.json)，复制为 `config.json` 后填写：
 
 ```json
