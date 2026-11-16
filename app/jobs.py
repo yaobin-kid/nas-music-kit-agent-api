@@ -171,6 +171,57 @@ class JobManager:
     def get(self, job_id: str) -> dict[str, Any] | None:
         return self._jobs.get(job_id)
 
+    def snapshot(self, limit: int = 20) -> dict[str, Any]:
+        """任务队列快照，供监控大盘轮询。"""
+        counts = {"queued": 0, "running": 0, "completed": 0, "failed": 0}
+        for job in self._jobs.values():
+            status = job.get("status", "unknown")
+            counts[status] = counts.get(status, 0) + 1
+
+        latest = sorted(
+            self._jobs.values(),
+            key=lambda job: job.get("created_at") or "",
+            reverse=True,
+        )
+        items = []
+        for job in latest[:limit]:
+            failures = [
+                {
+                    "title": result.get("title"),
+                    "artist": result.get("artist"),
+                    "status": result.get("status"),
+                    "error": result.get("error") or result.get("response"),
+                }
+                for result in (job.get("results") or [])
+                if result.get("status") != "downloaded"
+            ]
+            items.append(
+                {
+                    "job_id": job.get("job_id"),
+                    "status": job.get("status"),
+                    "stage": job.get("stage"),
+                    "total": job.get("total"),
+                    "processed": job.get("processed"),
+                    "downloaded": job.get("downloaded"),
+                    "not_found": job.get("not_found"),
+                    "failed": job.get("failed"),
+                    "current": job.get("current"),
+                    "created_at": job.get("created_at"),
+                    "finished_at": job.get("finished_at"),
+                    "error": job.get("error"),
+                    "failures": failures[-50:],
+                }
+            )
+
+        running = next((item for item in items if item["status"] == "running"), None)
+        return {
+            "counts": counts,
+            "queue_size": self._queue.qsize(),
+            "worker_running": self._worker is not None and not self._worker.done(),
+            "current_job_id": running["job_id"] if running else None,
+            "items": items,
+        }
+
     def _prune(self) -> None:
         if len(self._jobs) < 50:
             return

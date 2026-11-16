@@ -8,6 +8,7 @@
 - `POST /api/playlist/import`：给歌单/榜单链接，自动抓取、匹配并创建 Navidrome 播放列表
 - `POST /api/charts/refresh`：立即刷新榜单，支持 `dry_run` 预览
 - `GET /api/charts/status`：查看最近一次榜单运行状态和日志
+- `GET /dashboard`：监控大盘，查看上游状态、限流、任务队列和榜单日志
 - `GET /api/charts/report`：下载最新未匹配清单
 - `POST /api/library/organize`：按 `Artist/Album/Artist - Title` 清洗媒体库
 - 接口地址、鉴权信息都通过环境变量配置，镜像可直接复用
@@ -168,6 +169,35 @@ POST /api/navidrome/scan?wait=true
 GET /healthz
 ```
 
+### 监控大盘
+
+浏览器打开：
+
+```text
+http://NAS:8080/dashboard
+```
+
+大盘每 5 秒自动刷新，展示：
+
+- 上游音乐服务是否可达、HTTP 状态码与延迟
+- 本地滑动窗口限流用量、剩余额度
+- 补歌队列：执行中 / 排队 / 已完成 / 失败数量，worker 状态
+- 当前与最近任务：阶段（搜索/下载、清洗、扫描）、进度、下载/未找到/失败数、当前曲目
+- 最近失败与未匹配歌曲明细
+- 榜单任务状态、补歌任务 id、未匹配清单下载、最近日志
+
+数据接口为 `GET /api/dashboard/status`，返回 JSON，便于接入其它监控。启用 Basic 认证后，浏览器打开大盘会先弹出登录框。
+
+页面还提供与 [SKILL.md](./skill/nas-music-kit/SKILL.md) 对应的快捷操作：
+
+- 搜索并下载单曲（先选音源、关键词，再在结果里点下载）
+- 导入歌单/榜单链接（支持仅预览、宽松匹配、走代理、自动补歌、补歌后扫描）
+- 批量补歌（每行 `歌名 - 歌手`，后台串行执行）
+- 媒体库清洗（预览/执行）、触发 Navidrome 扫描
+- 立即刷新榜单（可勾选仅预览）
+
+这些操作和 HTTP API 权限一致，服务本身没有鉴权；只在内网使用，不要把 `8080` 直接暴露到公网。
+
 ## API 工作流程
 
 ### 1. 搜索与单曲下载
@@ -275,6 +305,10 @@ GET /api/charts/report
 | `CHARTS_CONFIG` | `/charts/config.json` | 容器内榜单配置文件 |
 | `CHARTS_REPORTS_DIR` | `/tmp/charts-reports` | 报表、日志和运行状态目录 |
 | `CHARTS_TIMEOUT` | `3600` | 单次榜单执行超时（秒） |
+| `ALLOWED_CIDRS` | 空 | 允许访问的 IP/CIDR，逗号分隔；空表示不限制 |
+| `AUTH_USER` | 空 | Basic 认证用户名，和密码同时配置才生效 |
+| `AUTH_PASSWORD` | 空 | Basic 认证密码 |
+| `TRUST_PROXY_HEADERS` | `false` | 反向代理后设为 `true`，从 `X-Forwarded-For` 取真实 IP |
 
 ## 目录结构
 
@@ -309,6 +343,37 @@ nas-music-kit 的下载目录固定是 `/music`，这个不要改。Agent 只额
 - 限流只作用于经过本服务的请求；直接访问 juneix 的 `8848` 网页不受此限制
 - 限流状态在进程内存里，本镜像只启动一个 uvicorn 进程；如果部署多个副本，上游额度是共享的，需要自行降低每个副本的限制
 
+## 访问控制
+
+服务默认不限制访问。生产部署建议至少开启 CIDR 白名单；大盘和下载接口都能触发实际操作，不能裸露在公网。
+
+```env
+# 只允许局域网和 Docker 网段；逗号分隔，支持单个 IP 和 CIDR
+ALLOWED_CIDRS=192.168.1.0/24,10.0.0.0/8,172.17.0.0/16
+
+# HTTP Basic 认证；两项必须同时配置
+AUTH_USER=admin
+AUTH_PASSWORD=change-me
+
+# 部署在 Nginx / Traefik 等反向代理后面时开启
+TRUST_PROXY_HEADERS=true
+```
+
+规则：
+
+- 白名单对所有路径生效，`/healthz` 例外（容器健康检查不受影响）
+- 来源 IP 不在白名单返回 `403`，不会读取账号密码
+- 启用 Basic 认证后，未带凭据返回 `401` 和 `WWW-Authenticate`；浏览器打开 `/dashboard` 会弹登录框
+- `curl` 调用需要加 `-u "admin:change-me"`
+- `AUTH_USER` / `AUTH_PASSWORD` 只配一项会拒绝启动，避免“以为开了认证其实没开”
+- `ALLOWED_CIDRS` 写错格式会拒绝启动，错误信息会指出具体条目
+
+注意：
+
+- Basic 认证在 HTTP 下是明文传输，只适合内网；要公网访问请套 HTTPS 反向代理
+- `TRUST_PROXY_HEADERS=true` 时只应在可信代理后面使用，否则客户端可以伪造 `X-Forwarded-For`
+- 容器桥接部署时，Docker 通常保留原始客户端 IP；若发现来源变成网关地址，按实际网段放行或开代理头
+
 ## 自动补歌与媒体库清洗
 
 补歌任务由后台单 worker 串行执行，天然受上游限流约束，适合一次提交、慢慢跑完。
@@ -326,7 +391,7 @@ nas-music-kit 的下载目录固定是 `/music`，这个不要改。Agent 只额
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.10.1` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.11.0` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -818,8 +883,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.10.1
-git push origin v0.10.1
+git tag v0.11.0
+git push origin v0.11.0
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。

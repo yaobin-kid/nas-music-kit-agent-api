@@ -75,6 +75,25 @@ class RateLimiter:
 
             self._events.append(now)
 
+    def snapshot(self) -> dict[str, Any]:
+        """当前滑动窗口用量，供监控大盘读取。"""
+        now = time.monotonic()
+        if self.enabled:
+            while self._events and now - self._events[0] >= self.window:
+                self._events.popleft()
+        used = len(self._events)
+        retry_after = 0.0
+        if self.enabled and used >= self.limit and self._events:
+            retry_after = max(self.window - (now - self._events[0]), 0.0)
+        return {
+            "enabled": self.enabled,
+            "limit": self.limit,
+            "window": self.window,
+            "used": used,
+            "remaining": max(self.limit - used, 0) if self.enabled else None,
+            "retry_after": round(retry_after, 1),
+        }
+
 
 def _parse_retry_after(value: str | None) -> float:
     if not value:
@@ -123,6 +142,41 @@ class MusicApiClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    def rate_limit_snapshot(self) -> dict[str, Any]:
+        if self._rate_limiter is None:
+            return {
+                "enabled": False,
+                "limit": 0,
+                "window": 0,
+                "used": 0,
+                "remaining": None,
+                "retry_after": 0.0,
+            }
+        return self._rate_limiter.snapshot()
+
+    async def probe(self) -> dict[str, Any]:
+        """探测上游首页是否可达，不消耗业务接口额度。"""
+        started = time.monotonic()
+        try:
+            response = await self._client.get("/", timeout=httpx.Timeout(5.0))
+            return {
+                "healthy": response.status_code < 400,
+                "status_code": response.status_code,
+                "latency_ms": round((time.monotonic() - started) * 1000),
+                "error": None,
+            }
+        except httpx.HTTPError as exc:
+            return {
+                "healthy": False,
+                "status_code": None,
+                "latency_ms": round((time.monotonic() - started) * 1000),
+                "error": str(exc),
+            }
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         last_status: int | None = None

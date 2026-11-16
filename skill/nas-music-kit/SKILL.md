@@ -21,6 +21,9 @@ description: 通过自建的 NAS 音乐 API 搜索、下载歌曲，导入外部
 - 从环境变量 `MUSIC_KIT_API_URL` 读取服务地址，例如 `http://192.168.1.10:8080`。
 - 未设置时先向用户询问，不要臆造地址。
 - 调用前可检查 `GET $MUSIC_KIT_API_URL/healthz`，返回 `"status":"ok"` 即正常。
+- 需要人工查看状态或临时干预时，让用户浏览器打开 `$MUSIC_KIT_API_URL/dashboard`，不要要求用户进入容器。
+- 若服务启用了 Basic 认证，从 `MUSIC_KIT_API_USER` / `MUSIC_KIT_API_PASSWORD` 读取凭据，并给所有请求加 `-u "$MUSIC_KIT_API_USER:$MUSIC_KIT_API_PASSWORD"`；用户未提供就询问，不要臆造。下文示例默认未带认证。
+- 返回 `403` 表示当前 IP 不在服务端白名单，不要反复重试，提示用户调整 `ALLOWED_CIDRS`。
 - 上游地址、Cookie、Navidrome 账号都由服务端环境变量配置，Skill 不接触。
 
 ## 快速选择

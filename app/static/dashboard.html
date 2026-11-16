@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAS Music Kit · 监控大盘</title>
+<style>
+  :root {
+    --bg: #0d1016; --card: #161a22; --line: #232936;
+    --text: #e7eaf0; --muted: #98a2b3; --ok: #22c55e; --warn: #f59e0b;
+    --bad: #ef4444; --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  }
+  header {
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  h1 span { color: var(--muted); font-weight: 400; margin-left: 8px; font-size: 13px; }
+  .meta { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 16px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+  .dot.warn { background: var(--warn); }
+  button {
+    background: #1f2531; color: var(--text); border: 1px solid var(--line);
+    padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { border-color: var(--accent); }
+  main { max-width: 1180px; margin: 0 auto; padding: 20px 24px 48px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 13px; color: var(--muted); font-weight: 500; margin: 0 0 12px; }
+  .big { font-size: 22px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 12px; margin-top: 6px; word-break: break-all; }
+  .bar { height: 6px; background: #0c0f15; border-radius: 4px; overflow: hidden; margin-top: 12px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+  .bar.warn > i { background: var(--warn); } .bar.bad > i { background: var(--bad); }
+  h3 { font-size: 14px; margin: 28px 0 12px; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  th, td { padding: 10px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; background: #131720; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #222836; color: var(--muted); }
+  .tag.ok { background: rgba(34,197,94,.14); color: #4ade80; }
+  .tag.bad { background: rgba(239,68,68,.14); color: #f87171; }
+  .tag.warn { background: rgba(245,158,11,.14); color: #fbbf24; }
+  .tag.info { background: rgba(56,189,248,.14); color: #7dd3fc; }
+  .progress { width: 120px; height: 6px; background: #0c0f15; border-radius: 4px; overflow: hidden; }
+  .progress > i { display: block; height: 100%; background: var(--accent); }
+  .empty { color: var(--muted); padding: 18px; font-size: 13px; text-align: center; background: var(--card); border: 1px dashed var(--line); border-radius: 12px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  #chartLog {
+    background: #0a0d12; border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px; color: #c9d1e0; font-size: 12px; line-height: 1.6;
+    max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+  }
+  .error-bar { display: none; margin-bottom: 16px; padding: 10px 14px; border-radius: 10px;
+    background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35); color: #fca5a5; font-size: 13px; }
+  a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  .links { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
+  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; }
+  textarea, input[type="text"], select {
+    background: #0c0f15; border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%;
+    font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 84px; }
+  input[type="checkbox"] { width: auto; accent-color: var(--accent); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  .row > * { flex: 1 1 0; min-width: 0; }
+  .row .auto { flex: 0 0 auto; }
+  .checks { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 8px 0; }
+  .checks label { display: inline-flex; align-items: center; gap: 4px; }
+  .result-box {
+    margin-top: 10px; background: #0a0d12; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; font-size: 12px; color: #c9d1e0; max-height: 220px; overflow: auto;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .result-box.bad { border-color: rgba(239,68,68,.45); color: #fca5a5; }
+  #searchResult { white-space: normal; }
+  .hit { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .hit:last-child { border-bottom: 0; }
+  .hit button { flex: 0 0 auto; }
+  #toast {
+    position: fixed; right: 20px; bottom: 20px; max-width: 380px; padding: 10px 14px;
+    border-radius: 10px; background: #1b2432; border: 1px solid var(--line);
+    color: var(--text); font-size: 13px; opacity: 0; transform: translateY(8px);
+    transition: .2s; pointer-events: none; z-index: 9;
+  }
+  #toast.show { opacity: 1; transform: none; }
+  #toast.bad { border-color: rgba(239,68,68,.5); color: #fca5a5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>NAS Music Kit <span>监控大盘 · <b id="version">-</b></span></h1>
+  <div class="meta">
+    <span class="pill"><i class="dot" id="connDot"></i><span id="connText">连接中</span></span>
+    <span>运行 <b id="uptime">-</b></span>
+    <span>最后刷新 <b id="lastUpdated">-</b></span>
+    <button id="refreshBtn">立即刷新</button>
+  </div>
+</header>
+<main>
+  <div class="error-bar" id="errorBar"></div>
+
+  <div class="cards">
+    <div class="card">
+      <h2>上游音乐服务</h2>
+      <div class="big"><span class="dot" id="upDot"></span> <span id="upState">-</span></div>
+      <div class="sub mono" id="upUrl">-</div>
+      <div class="sub" id="upDetail">-</div>
+    </div>
+    <div class="card">
+      <h2>上游限流窗口</h2>
+      <div class="big"><span id="rateUsed">-</span> <span class="sub" style="display:inline">/ <span id="rateLimit">-</span></span></div>
+      <div class="sub" id="rateDetail">-</div>
+      <div class="bar" id="rateBar"><i></i></div>
+    </div>
+    <div class="card">
+      <h2>补歌任务队列</h2>
+      <div class="big"><span id="jobRunning">0</span> 个执行中</div>
+      <div class="sub" id="jobCounts">-</div>
+      <div class="sub" id="workerState">-</div>
+    </div>
+    <div class="card">
+      <h2>榜单定时任务</h2>
+      <div class="big"><span class="tag" id="chartStatus">-</span></div>
+      <div class="sub" id="chartDetail">-</div>
+      <div class="links" id="chartLinks"></div>
+    </div>
+  </div>
+
+  <h3>快捷操作</h3>
+  <div class="sub" style="margin-bottom:12px">
+    这些操作与 HTTP API 权限一致，服务本身没有鉴权，请勿把 8080 端口直接暴露到公网。
+  </div>
+  <div class="panels">
+    <div class="card">
+      <h2>搜索并下载</h2>
+      <div class="row">
+        <select id="searchSource" class="auto">
+          <option value="netease">网易云</option>
+          <option value="qq">QQ音乐</option>
+          <option value="qishui">汽水</option>
+          <option value="spotify">Spotify</option>
+          <option value="youtube">YouTube</option>
+        </select>
+        <input type="text" id="searchName" placeholder="歌名 / 歌手">
+        <button id="searchBtn" class="auto">搜索</button>
+      </div>
+      <div class="result-box" id="searchResult">输入关键词开始搜索</div>
+      <div class="sub" id="searchMsg">搜索和下载都会消耗上游额度。</div>
+    </div>
+
+    <div class="card">
+      <h2>导入歌单 / 榜单链接</h2>
+      <textarea id="playlistUrls" placeholder="每行一个链接，支持网易云、QQ音乐、Spotify、汽水"></textarea>
+      <div class="checks">
+        <label><input type="checkbox" id="plDry"> 仅预览</label>
+        <label><input type="checkbox" id="plLoose"> 宽松匹配</label>
+        <label><input type="checkbox" id="plProxy"> 走代理</label>
+        <label><input type="checkbox" id="plBackfill" checked> 自动补歌</label>
+        <label><input type="checkbox" id="plScan" checked> 补歌后扫描</label>
+      </div>
+      <button id="playlistBtn">开始导入</button>
+      <div class="result-box" id="playlistResult">支持网易云、QQ音乐、Spotify、汽水音乐。</div>
+    </div>
+
+    <div class="card">
+      <h2>批量补歌</h2>
+      <textarea id="backfillTracks" placeholder="每行一首：歌名 - 歌手"></textarea>
+      <div class="row">
+        <input type="text" id="backfillSource" value="netease" class="auto" style="max-width:110px">
+        <label class="auto sub"><input type="checkbox" id="bfOrganize" checked> 完成后清洗</label>
+        <label class="auto sub"><input type="checkbox" id="bfScan" checked> 完成后扫描</label>
+      </div>
+      <button id="backfillBtn">提交补歌任务</button>
+      <div class="result-box" id="backfillResult">任务在后台串行执行，受上游限流约束。</div>
+    </div>
+
+    <div class="card">
+      <h2>媒体库与榜单维护</h2>
+      <div class="row">
+        <button id="organizePreviewBtn">清洗预览</button>
+        <button id="organizeBtn">执行清洗</button>
+      </div>
+      <div class="row">
+        <button id="scanBtn">Navidrome 扫描</button>
+        <label class="auto sub"><input type="checkbox" id="scanWait" checked> 等待扫描完成</label>
+      </div>
+      <div class="row">
+        <button id="chartsBtn" class="auto">立即刷新榜单</button>
+        <label class="auto sub"><input type="checkbox" id="chartDry"> 仅预览</label>
+      </div>
+      <div class="result-box" id="maintResult">清洗会把 /music 整理到 /library；榜单刷新会抓取、匹配并补歌。</div>
+    </div>
+  </div>
+
+  <h3>当前与最近任务</h3>
+  <table id="jobsTable">
+    <thead>
+      <tr>
+        <th>任务</th><th>状态</th><th>阶段</th><th>进度</th>
+        <th>下载</th><th>未找到</th><th>失败</th><th>当前曲目</th><th>开始时间</th>
+      </tr>
+    </thead>
+    <tbody id="jobsBody"><tr><td colspan="9" class="empty">暂无任务</td></tr></tbody>
+  </table>
+
+  <h3>最近失败 / 未匹配</h3>
+  <table>
+    <thead><tr><th>任务</th><th>歌曲</th><th>歌手</th><th>状态</th><th>原因</th></tr></thead>
+    <tbody id="failBody"><tr><td colspan="5" class="empty">暂无失败记录</td></tr></tbody>
+  </table>
+
+  <h3>榜单日志</h3>
+  <pre id="chartLog">暂无榜单日志</pre>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function esc(value) {
+  return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function fmtTime(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return esc(value);
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function fmtUptime(seconds) {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const d = Math.floor(total / 86400);
+  const h = Math.floor((total % 86400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return [d ? d + ' 天' : '', h ? h + ' 小时' : '', m ? m + ' 分' : '', s + ' 秒']
+    .filter(Boolean).join(' ');
+}
+
+function statusInfo(status) {
+  const map = {
+    running: ['执行中', 'info'], queued: ['排队中', 'warn'],
+    completed: ['已完成', 'ok'], failed: ['失败', 'bad'], idle: ['空闲', '']
+  };
+  return map[status] || [status || '—', ''];
+}
+
+function statusTag(status) {
+  const info = statusInfo(status);
+  return '<span class="tag ' + info[1] + '">' + esc(info[0]) + '</span>';
+}
+
+function stageText(stage) {
+  const map = {
+    queued: '排队', searching: '搜索/下载', organizing: '清洗媒体库',
+    scanning: 'Navidrome 扫描', done: '结束'
+  };
+  return map[stage] || stage || '—';
+}
+
+function reasonText(value) {
+  if (!value) return '—';
+  if (typeof value === 'string') return value;
+  try { return JSON.stringify(value); } catch (e) { return String(value); }
+}
+
+function renderJobs(jobs) {
+  const items = jobs.items || [];
+  if (!items.length) {
+    $('jobsBody').innerHTML = '<tr><td colspan="9" class="empty">暂无任务</td></tr>';
+    return;
+  }
+  $('jobsBody').innerHTML = items.map((job) => {
+    const total = job.total || 0;
+    const done = job.processed || 0;
+    const pct = total ? Math.min(100, Math.round(done * 100 / total)) : 0;
+    return '<tr>' +
+      '<td class="mono">' + esc((job.job_id || '').slice(0, 8)) + '</td>' +
+      '<td>' + statusTag(job.status) + '</td>' +
+      '<td>' + esc(stageText(job.stage)) + '</td>' +
+      '<td><div class="progress"><i style="width:' + pct + '%"></i></div>' +
+        '<span class="sub">' + done + ' / ' + total + '</span></td>' +
+      '<td>' + esc(job.downloaded ?? 0) + '</td>' +
+      '<td>' + esc(job.not_found ?? 0) + '</td>' +
+      '<td>' + esc(job.failed ?? 0) + '</td>' +
+      '<td>' + esc(job.current || '—') + '</td>' +
+      '<td>' + fmtTime(job.created_at) + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+function renderFailures(jobs) {
+  const rows = [];
+  for (const job of (jobs.items || [])) {
+    for (const failure of (job.failures || [])) {
+      rows.push({ job: job.job_id, ...failure });
+      if (rows.length >= 30) break;
+    }
+    if (rows.length >= 30) break;
+  }
+  if (!rows.length) {
+    $('failBody').innerHTML = '<tr><td colspan="5" class="empty">暂无失败记录</td></tr>';
+    return;
+  }
+  $('failBody').innerHTML = rows.map((row) =>
+    '<tr>' +
+      '<td class="mono">' + esc((row.job || '').slice(0, 8)) + '</td>' +
+      '<td>' + esc(row.title || '—') + '</td>' +
+      '<td>' + esc(row.artist || '—') + '</td>' +
+      '<td><span class="tag bad">' + esc(row.status || '失败') + '</span></td>' +
+      '<td>' + esc(reasonText(row.error).slice(0, 200)) + '</td>' +
+    '</tr>'
+  ).join('');
+}
+
+function renderCharts(charts) {
+  const info = charts.configured === false ? ['未配置', 'bad'] : statusInfo(charts.status);
+  const statusEl = $('chartStatus');
+  statusEl.className = 'tag ' + info[1];
+  statusEl.textContent = info[0];
+
+  const detail = [];
+  if (charts.run_id) detail.push('run ' + esc(charts.run_id));
+  if (charts.started_at) detail.push('开始 ' + fmtTime(charts.started_at));
+  if (charts.duration_seconds !== null && charts.duration_seconds !== undefined) {
+    detail.push('耗时 ' + esc(charts.duration_seconds) + ' 秒');
+  }
+  if (charts.status === 'running') detail.push('正在执行');
+  if (charts.error) detail.push('错误：' + esc(charts.error));
+  $('chartDetail').innerHTML = detail.length ? detail.join(' · ') : '暂无运行记录';
+
+  const links = [];
+  if (charts.report_file) {
+    links.push('<a href="/api/charts/report">下载未匹配清单</a>');
+  }
+  if (charts.job_ids && charts.job_ids.length) {
+    links.push('<span class="sub">补歌任务 ' + esc(charts.job_ids.join(', ')) + '</span>');
+  }
+  $('chartLinks').innerHTML = links.join('');
+
+  const tail = (charts.log_tail || '').trim();
+  $('chartLog').textContent = tail ? tail.split('\n').slice(-20).join('\n') : '暂无榜单日志';
+}
+
+function render(data) {
+  $('version').textContent = data.version || '-';
+  $('uptime').textContent = fmtUptime(data.uptime_seconds);
+  $('lastUpdated').textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+
+  const upstream = data.upstream || {};
+  const ok = upstream.healthy !== false;
+  $('upDot').className = 'dot ' + (ok ? 'ok' : 'bad');
+  $('upState').textContent = ok ? '正常' : '异常';
+  $('upUrl').textContent = upstream.base_url || '-';
+  $('upDetail').textContent = ok
+    ? 'HTTP ' + (upstream.status_code ?? '-') + ' · ' + (upstream.latency_ms ?? '-') + ' ms'
+    : (upstream.error
+        ? '错误：' + upstream.error
+        : 'HTTP ' + (upstream.status_code ?? '-') + ' · ' + (upstream.latency_ms ?? '-') + ' ms');
+
+  const rate = data.rate_limit || {};
+  if (rate.enabled === false) {
+    $('rateUsed').textContent = '不限流';
+    $('rateLimit').textContent = '-';
+    $('rateDetail').textContent = '本地限流已关闭';
+    $('rateBar').className = 'bar';
+    $('rateBar').firstElementChild.style.width = '0%';
+  } else {
+    const limit = rate.limit || 0;
+    const used = rate.used || 0;
+    const pct = limit ? Math.min(100, Math.round(used * 100 / limit)) : 0;
+    $('rateUsed').textContent = used;
+    $('rateLimit').textContent = limit;
+    $('rateDetail').textContent = '窗口 ' + (rate.window || '-') + ' 秒 · 剩余 ' +
+      (rate.remaining ?? '-') + ' 次' +
+      (rate.retry_after ? ' · 等待 ' + rate.retry_after + ' 秒' : '');
+    $('rateBar').className = 'bar' + (pct >= 100 ? ' bad' : pct >= 80 ? ' warn' : '');
+    $('rateBar').firstElementChild.style.width = pct + '%';
+  }
+
+  const jobs = data.jobs || {};
+  const counts = jobs.counts || {};
+  $('jobRunning').textContent = counts.running || 0;
+  $('jobCounts').textContent = '排队 ' + (counts.queued || 0) +
+    ' · 已完成 ' + (counts.completed || 0) + ' · 失败 ' + (counts.failed || 0);
+  $('workerState').textContent = jobs.worker_running
+    ? 'worker 运行中，队列 ' + (jobs.queue_size || 0) + ' 个等待'
+    : 'worker 未运行';
+
+  renderJobs(jobs);
+  renderFailures(jobs);
+  renderCharts(data.charts || {});
+}
+
+let searchCandidates = [];
+
+async function api(url, options = {}) {
+  const response = await fetch(url, { cache: 'no-store', ...options });
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
+  }
+  if (!response.ok) {
+    const detail = (data && (data.detail || data.error)) || ('HTTP ' + response.status);
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+  }
+  return data;
+}
+
+function jsonPost(url, body) {
+  return api(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+function showResult(id, value, bad = false) {
+  const box = $(id);
+  box.classList.toggle('bad', bad);
+  box.textContent = typeof value === 'string'
+    ? value
+    : JSON.stringify(value, null, 2).slice(0, 4000);
+}
+
+let toastTimer = null;
+function toast(message, bad = false) {
+  const el = $('toast');
+  el.textContent = message;
+  el.className = 'show' + (bad ? ' bad' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 4000);
+}
+
+function artistText(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join(' / ');
+  return value === null || value === undefined ? '' : String(value);
+}
+
+function formatOrganize(result) {
+  const labels = [
+    ['scanned', '扫描'], ['planned', '计划'], ['moved', '移动'],
+    ['skipped', '跳过'], ['source_dirs_removed', '删除空目录']
+  ];
+  const lines = labels
+    .filter(([key]) => result && result[key] !== undefined)
+    .map(([key, label]) => label + ': ' + result[key]);
+  if (result && result.error) lines.push('错误: ' + result.error);
+  if (!lines.length) return JSON.stringify(result, null, 2).slice(0, 4000);
+  return lines.join('\n');
+}
+
+async function doSearch(button) {
+  const name = $('searchName').value.trim();
+  if (!name) { toast('请输入歌名或歌手', true); return; }
+  const source = $('searchSource').value;
+  button.disabled = true;
+  $('searchMsg').textContent = '搜索中…';
+  try {
+    const items = await api('/api/search?source=' + encodeURIComponent(source) +
+      '&name=' + encodeURIComponent(name) + '&pages=1');
+    searchCandidates = Array.isArray(items) ? items : [];
+    const box = $('searchResult');
+    if (!searchCandidates.length) {
+      box.innerHTML = '<div class="empty">没有搜索结果，换个关键词或音源</div>';
+    } else {
+      box.innerHTML = searchCandidates.map((item, index) =>
+        '<div class="hit"><div><b>' + esc(item.name || '') + '</b>' +
+        '<div class="sub">' + esc(artistText(item.artist)) + ' · ' +
+        esc(item.album || '—') + ' · ' + esc(item.source || source) + '</div></div>' +
+        '<button data-idx="' + index + '">下载</button></div>'
+      ).join('');
+      box.querySelectorAll('[data-idx]').forEach((btn) =>
+        btn.addEventListener('click', () =>
+          downloadCandidate(Number(btn.dataset.idx), btn)));
+    }
+    $('searchMsg').textContent = '共 ' + searchCandidates.length + ' 条结果，下载会写入 /music。';
+  } catch (err) {
+    $('searchResult').innerHTML = '';
+    $('searchMsg').textContent = '搜索失败：' + err.message;
+    toast('搜索失败', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function downloadCandidate(index, button) {
+  const item = searchCandidates[index];
+  if (!item) return;
+  button.disabled = true;
+  $('searchMsg').textContent = '提交下载中…';
+  try {
+    const result = await jsonPost('/api/download', {
+      source: item.source || $('searchSource').value,
+      id: String(item.id),
+      name: item.name || '',
+      artist: artistText(item.artist),
+      album: Array.isArray(item.album) ? item.album.join(' / ') : (item.album || ''),
+      pic_id: String(item.pic_id || ''),
+      br: '999',
+      lyric: true,
+      vip: false,
+    });
+    if (result && result.status === 'success') {
+      $('searchMsg').textContent = '已下载：' + (result.filename || item.name) + '（文件在 /music）';
+      toast('下载成功：' + (result.filename || item.name));
+    } else {
+      $('searchMsg').textContent = '下载返回：' + JSON.stringify(result).slice(0, 300);
+      toast('下载未成功', true);
+    }
+  } catch (err) {
+    $('searchMsg').textContent = '下载失败：' + err.message;
+    toast('下载失败', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function importPlaylist(button) {
+  const urls = $('playlistUrls').value.split('\n').map((s) => s.trim()).filter(Boolean);
+  if (!urls.length) { toast('请填写歌单链接', true); return; }
+  button.disabled = true;
+  showResult('playlistResult', '导入中，抓取和匹配可能需要一会儿…');
+  try {
+    const result = await jsonPost('/api/playlist/import', {
+      urls,
+      dry_run: $('plDry').checked,
+      loose: $('plLoose').checked,
+      proxy: $('plProxy').checked,
+      backfill: $('plBackfill').checked,
+      scan: $('plScan').checked,
+    });
+    const lines = (result.playlists || []).map((p) =>
+      (p.platform || '') + ' ' + (p.name || '') + ': 匹配 ' +
+      (p.matched ?? 0) + '/' + (p.total ?? 0) +
+      (p.error ? '，失败：' + p.error : ''));
+    lines.push('未匹配 ' + (result.missing_tracks || []).length + ' 首');
+    if (result.backfill_job_id) {
+      lines.push('补歌任务 ' + result.backfill_job_id + '（' + (result.backfill_total ?? 0) + ' 首）');
+    }
+    showResult('playlistResult', lines.join('\n'));
+    toast('歌单导入完成');
+    load();
+  } catch (err) {
+    showResult('playlistResult', '导入失败：' + err.message, true);
+    toast('导入失败', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function parseTracks(text, source) {
+  return text.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
+    const match = line.match(/^(.+?)\s*(?:-|—|｜|\|)\s*(.+)$/);
+    if (!match) return { title: line, artist: '', source };
+    return { title: match[1].trim(), artist: match[2].trim(), source };
+  });
+}
+
+async function submitBackfill(button) {
+  const source = ($('backfillSource').value || 'netease').trim();
+  const tracks = parseTracks($('backfillTracks').value, source);
+  if (!tracks.length) { toast('请填写要补的歌曲', true); return; }
+  button.disabled = true;
+  showResult('backfillResult', '提交中…');
+  try {
+    const result = await jsonPost('/api/library/backfill', {
+      tracks,
+      organize: $('bfOrganize').checked,
+      scan: $('bfScan').checked,
+    });
+    showResult('backfillResult',
+      '已提交任务 ' + result.job_id + '，共 ' + result.total + ' 首；进度见下方任务列表。');
+    toast('补歌任务已提交');
+    load();
+  } catch (err) {
+    showResult('backfillResult', '提交失败：' + err.message, true);
+    toast('提交失败', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function organizeLibrary(dryRun, button) {
+  button.disabled = true;
+  showResult('maintResult', dryRun ? '清洗预览中…' : '清洗中，文件较多时需要一些时间…');
+  try {
+    const result = await jsonPost('/api/library/organize?dry_run=' + (dryRun ? 'true' : 'false'));
+    showResult('maintResult', formatOrganize(result));
+    toast(dryRun ? '清洗预览完成' : '清洗完成');
+    load();
+  } catch (err) {
+    showResult('maintResult', '清洗失败：' + err.message, true);
+    toast('清洗失败', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function navidromeScan(button) {
+  button.disabled = true;
+  showResult('maintResult', '触发 Navidrome 扫描…');
+  try {
+    const result = await jsonPost('/api/navidrome/scan?wait=' + ($('scanWait').checked ? 'true' : 'false'));
+    showResult('maintResult', JSON.stringify(result, null, 2).slice(0, 2000));
+    toast('Navidrome 扫描已触发');
+  } catch (err) {
+    showResult('maintResult', '扫描失败：' + err.message, true);
+    toast('扫描失败', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function refreshCharts(button) {
+  button.disabled = true;
+  showResult('maintResult', '提交榜单任务…');
+  try {
+    const result = await jsonPost('/api/charts/refresh', { dry_run: $('chartDry').checked });
+    showResult('maintResult',
+      '榜单任务已提交：' + (result.status || '-') + '（run ' + (result.run_id || '-') + '）\n' +
+      '状态和日志见上方“榜单定时任务”卡片。');
+    toast('榜单任务已提交');
+    load();
+  } catch (err) {
+    showResult('maintResult', '提交榜单任务失败：' + err.message, true);
+    toast('榜单任务提交失败', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+let loading = false;
+async function load() {
+  if (loading) return;
+  loading = true;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch('/api/dashboard/status', { signal: controller.signal, cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const data = await response.json();
+    $('errorBar').style.display = 'none';
+    $('connDot').className = 'dot ok';
+    $('connText').textContent = '已连接';
+    render(data);
+  } catch (err) {
+    $('errorBar').style.display = 'block';
+    $('errorBar').textContent = '获取状态失败：' + err.message + '，请检查 agent 服务。';
+    $('connDot').className = 'dot bad';
+    $('connText').textContent = '连接异常';
+  } finally {
+    clearTimeout(timer);
+    loading = false;
+  }
+}
+
+$('refreshBtn').addEventListener('click', load);
+$('searchBtn').addEventListener('click', () => doSearch($('searchBtn')));
+$('searchName').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') doSearch($('searchBtn'));
+});
+$('playlistBtn').addEventListener('click', () => importPlaylist($('playlistBtn')));
+$('backfillBtn').addEventListener('click', () => submitBackfill($('backfillBtn')));
+$('organizePreviewBtn').addEventListener('click', () => organizeLibrary(true, $('organizePreviewBtn')));
+$('organizeBtn').addEventListener('click', () => organizeLibrary(false, $('organizeBtn')));
+$('scanBtn').addEventListener('click', () => navidromeScan($('scanBtn')));
+$('chartsBtn').addEventListener('click', () => refreshCharts($('chartsBtn')));
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>

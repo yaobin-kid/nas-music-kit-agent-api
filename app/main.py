@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
@@ -17,8 +19,10 @@ from .jobs import JobError, JobManager
 from .library import LibraryError, organize_library
 from .navidrome import NavidromeClient, NavidromeError, NavidromeSync
 from .playlist_import import import_playlists
+from .security import AccessPolicy, check_basic_auth, client_ip, ip_allowed, parse_networks
 
 APP_VERSION = os.getenv("APP_VERSION", __version__)
+DASHBOARD_HTML = Path(__file__).resolve().parent / "static" / "dashboard.html"
 
 
 class DownloadRequest(BaseModel):
@@ -78,6 +82,18 @@ def _env_bool(name: str, default: bool) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.started_at = time.time()
+    auth_user = os.getenv("AUTH_USER", "").strip()
+    auth_password = os.getenv("AUTH_PASSWORD", "")
+    if bool(auth_user) != bool(auth_password):
+        raise RuntimeError("AUTH_USER 和 AUTH_PASSWORD 必须同时配置")
+    app.state.access_policy = AccessPolicy(
+        networks=parse_networks(os.getenv("ALLOWED_CIDRS", "")),
+        user=auth_user,
+        password=auth_password,
+        trust_proxy=_env_bool("TRUST_PROXY_HEADERS", False),
+    )
+
     base_url = os.getenv("MUSIC_API_BASE_URL", "").strip()
     if not base_url:
         raise RuntimeError("必须通过 MUSIC_API_BASE_URL 配置上游音乐 API 地址")
@@ -167,6 +183,28 @@ app = FastAPI(
     version=APP_VERSION,
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def access_guard(request: Request, call_next):
+    """CIDR 白名单 + Basic 认证；/healthz 保持开放供健康检查。"""
+    if request.url.path == "/healthz":
+        return await call_next(request)
+    policy: AccessPolicy | None = getattr(request.app.state, "access_policy", None)
+    if policy is None:
+        return await call_next(request)
+    if not ip_allowed(client_ip(request, policy.trust_proxy), policy.networks):
+        return JSONResponse({"detail": "IP 不在允许范围"}, status_code=403)
+    if not check_basic_auth(
+        request.headers.get("authorization", ""), policy.user, policy.password
+    ):
+        return Response(
+            content="需要登录",
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="nas-music-kit"'},
+            media_type="text/plain",
+        )
+    return await call_next(request)
 
 
 def get_client(request: Request) -> MusicApiClient:
@@ -323,6 +361,31 @@ async def charts_report(request: Request) -> Any:
         path,
         media_type="text/csv; charset=utf-8",
         filename=path.name,
+    )
+
+
+@app.get("/api/dashboard/status")
+async def dashboard_status(request: Request) -> Any:
+    client: MusicApiClient = request.app.state.client
+    return {
+        "version": APP_VERSION,
+        "uptime_seconds": round(time.time() - request.app.state.started_at, 1),
+        "upstream": {"base_url": client.base_url, **await client.probe()},
+        "rate_limit": client.rate_limit_snapshot(),
+        "jobs": request.app.state.jobs.snapshot(),
+        "charts": request.app.state.charts.get_state(),
+        "library": {
+            "library_dir": request.app.state.library_dir,
+            "download_dir": request.app.state.download_dir,
+        },
+    }
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard_page() -> Any:
+    return FileResponse(
+        DASHBOARD_HTML,
+        media_type="text/html; charset=utf-8",
     )
 
 

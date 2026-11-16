@@ -63,6 +63,108 @@ def test_charts_refresh_endpoint(monkeypatch, tmp_path):
     assert body["job_ids"] == ["abcdef1234567890"]
 
 
+@pytest.fixture(autouse=True)
+def _clear_access_env(monkeypatch):
+    monkeypatch.setenv("ALLOWED_CIDRS", "")
+    monkeypatch.setenv("AUTH_USER", "")
+    monkeypatch.setenv("AUTH_PASSWORD", "")
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "false")
+
+
+def test_dashboard_status(client, monkeypatch):
+    async def fake_probe(self):
+        return {"healthy": True, "status_code": 200, "latency_ms": 1.0, "error": None}
+
+    monkeypatch.setattr("app.client.MusicApiClient.probe", fake_probe)
+    response = client.get("/api/dashboard/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["upstream"]["healthy"] is True
+    assert body["upstream"]["base_url"] == BASE
+    assert body["jobs"]["counts"]["running"] == 0
+    assert body["charts"]["configured"] is False
+    assert body["library"]["download_dir"] == body["library"]["library_dir"]
+
+
+def test_dashboard_page(client):
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "监控大盘" in response.text
+    assert "快捷操作" in response.text
+
+
+def test_cidr_allowlist(monkeypatch, tmp_path):
+    monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setenv("ALLOWED_CIDRS", "192.168.1.0/24")
+
+    with TestClient(app, client=("192.168.1.20", 1000)) as test_client:
+        assert test_client.get("/healthz").status_code == 200
+        assert test_client.get("/api/charts/status").status_code == 200
+
+    with TestClient(app, client=("10.0.0.5", 1000)) as test_client:
+        assert test_client.get("/healthz").status_code == 200
+        assert test_client.get("/api/charts/status").status_code == 403
+
+
+def test_trust_proxy_headers(monkeypatch, tmp_path):
+    monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setenv("ALLOWED_CIDRS", "192.168.1.0/24")
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
+
+    with TestClient(app, client=("127.0.0.1", 1000)) as test_client:
+        response = test_client.get(
+            "/api/charts/status",
+            headers={"X-Forwarded-For": "192.168.1.30"},
+        )
+        assert response.status_code == 200
+
+
+def test_basic_auth(monkeypatch, tmp_path):
+    monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setenv("AUTH_USER", "admin")
+    monkeypatch.setenv("AUTH_PASSWORD", "secret")
+
+    with TestClient(app) as test_client:
+        assert test_client.get("/healthz").status_code == 200
+
+        unauthorized = test_client.get("/api/charts/status")
+        assert unauthorized.status_code == 401
+        assert unauthorized.headers["www-authenticate"].startswith("Basic")
+
+        assert test_client.get(
+            "/api/charts/status", auth=("admin", "secret")
+        ).status_code == 200
+        assert test_client.get(
+            "/api/charts/status", auth=("admin", "wrong")
+        ).status_code == 401
+
+
+def test_auth_requires_both_credentials(monkeypatch, tmp_path):
+    monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setenv("AUTH_USER", "admin")
+
+    with pytest.raises(RuntimeError, match="AUTH_USER"):
+        with TestClient(app):
+            pass
+
+
+def test_parse_networks_rejects_invalid_value():
+    from app.security import parse_networks
+
+    with pytest.raises(ValueError, match="ALLOWED_CIDRS"):
+        parse_networks("not-a-cidr")
+
+
 @respx.mock
 def test_search_forwards_params(client):
     route = respx.get(url__regex=rf"{re.escape(BASE)}/api/search.*").mock(
