@@ -87,8 +87,20 @@ async def lifespan(app: FastAPI):
     auth_password = os.getenv("AUTH_PASSWORD", "")
     if bool(auth_user) != bool(auth_password):
         raise RuntimeError("AUTH_USER 和 AUTH_PASSWORD 必须同时配置")
+    networks = parse_networks(os.getenv("ALLOWED_CIDRS", ""))
+    raw_allowlist = os.getenv("ENABLE_IP_ALLOWLIST", "auto").strip().lower()
+    if raw_allowlist in {"", "auto"}:
+        ip_allowlist_enabled = bool(networks)
+    elif raw_allowlist in {"1", "true", "yes", "on"}:
+        ip_allowlist_enabled = True
+    elif raw_allowlist in {"0", "false", "no", "off"}:
+        ip_allowlist_enabled = False
+    else:
+        raise RuntimeError(f"ENABLE_IP_ALLOWLIST 取值无效: {raw_allowlist}")
+    if ip_allowlist_enabled and not networks:
+        raise RuntimeError("ENABLE_IP_ALLOWLIST 已开启，但 ALLOWED_CIDRS 为空")
     app.state.access_policy = AccessPolicy(
-        networks=parse_networks(os.getenv("ALLOWED_CIDRS", "")),
+        networks=networks if ip_allowlist_enabled else (),
         user=auth_user,
         password=auth_password,
         trust_proxy=_env_bool("TRUST_PROXY_HEADERS", False),

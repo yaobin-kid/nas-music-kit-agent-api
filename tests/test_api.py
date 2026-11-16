@@ -66,6 +66,7 @@ def test_charts_refresh_endpoint(monkeypatch, tmp_path):
 @pytest.fixture(autouse=True)
 def _clear_access_env(monkeypatch):
     monkeypatch.setenv("ALLOWED_CIDRS", "")
+    monkeypatch.setenv("ENABLE_IP_ALLOWLIST", "auto")
     monkeypatch.setenv("AUTH_USER", "")
     monkeypatch.setenv("AUTH_PASSWORD", "")
     monkeypatch.setenv("TRUST_PROXY_HEADERS", "false")
@@ -108,6 +109,29 @@ def test_cidr_allowlist(monkeypatch, tmp_path):
     with TestClient(app, client=("10.0.0.5", 1000)) as test_client:
         assert test_client.get("/healthz").status_code == 200
         assert test_client.get("/api/charts/status").status_code == 403
+
+
+def test_ip_allowlist_switch_off(monkeypatch, tmp_path):
+    monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setenv("ALLOWED_CIDRS", "192.168.1.0/24")
+    monkeypatch.setenv("ENABLE_IP_ALLOWLIST", "false")
+
+    with TestClient(app, client=("10.0.0.5", 1000)) as test_client:
+        assert test_client.get("/api/charts/status").status_code == 200
+
+
+def test_ip_allowlist_enabled_requires_cidrs(monkeypatch, tmp_path):
+    monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setenv("ALLOWED_CIDRS", "")
+    monkeypatch.setenv("ENABLE_IP_ALLOWLIST", "true")
+
+    with pytest.raises(RuntimeError, match="ALLOWED_CIDRS"):
+        with TestClient(app):
+            pass
 
 
 def test_trust_proxy_headers(monkeypatch, tmp_path):
