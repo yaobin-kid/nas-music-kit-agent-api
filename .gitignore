@@ -12,4 +12,3 @@ music-charts/logs/
 music-charts/reports/
 music-charts/downloads/
 music-charts/*.bak*
-music-charts/patch_charts.py

@@ -129,10 +129,6 @@
     }
   ],
   "keep_days": 1,
-  "spotify_auth": {
-    "client_id": "CHANGE_ME",
-    "client_secret": "CHANGE_ME"
-  },
   "agent_api": {
     "enable": true,
     "base": "http://127.0.0.1:8080",

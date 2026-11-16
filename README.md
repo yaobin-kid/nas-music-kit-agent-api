@@ -643,7 +643,7 @@ docker build -f Dockerfile.bundle \
 
 `music-charts/` 是榜单/歌单匹配程序。匹配结束后，未匹配歌曲会自动提交给本服务：
 
-1. `charts.py` / `playlist_import.py` 读取 `config.json` 里的 `agent_api`
+1. `charts.py` 读取 `config.json` 里的 `agent_api`
 2. 调用 `POST /api/library/backfill` 批量提交缺失歌曲
 3. 本服务后台搜索、下载，完成后清洗并触发 Navidrome 扫描
 4. 下一次榜单运行时，已下载的歌曲会正常匹配进播放列表
@@ -775,9 +775,9 @@ curl -s -X POST "http://127.0.0.1:8080/api/playlist/import" \
 
 确认 `total / matched / missing` 正常后，把 `dry_run` 改成 `false` 正式导入。
 - `max_tracks` 默认 1000，避免一次提交过多
-- `config.json` 含 Navidrome 密码和 Spotify 密钥，已在 `.gitignore` 中排除，不要提交
+- `config.json` 含 Navidrome 密码和榜单配置，已在 `.gitignore` 中排除，不要提交
 
-外部歌单/榜单链接导入见 [music-charts/README-playlist-import.md](./music-charts/README-playlist-import.md)：支持网易云、QQ音乐、Spotify、汽水音乐，匹配完成后同样会自动提交缺失歌曲。
+外部歌单/榜单链接导入使用 `POST /api/playlist/import`：支持网易云、QQ音乐、Spotify、汽水音乐，匹配完成后同样会自动提交缺失歌曲。
 
 ## Skill
 
