@@ -326,7 +326,7 @@ nas-music-kit 的下载目录固定是 `/music`，这个不要改。Agent 只额
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.10.0` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.10.1` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -818,8 +818,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.10.0
-git push origin v0.10.0
+git tag v0.10.1
+git push origin v0.10.1
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。
