@@ -96,6 +96,13 @@ def test_dashboard_page(client):
     assert "快捷操作" in response.text
 
 
+def test_root_redirects_to_dashboard(client):
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/dashboard"
+
+
 def test_cidr_allowlist(monkeypatch, tmp_path):
     monkeypatch.setenv("MUSIC_API_BASE_URL", BASE)
     monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))

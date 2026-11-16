@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
@@ -396,6 +396,11 @@ async def dashboard_status(request: Request) -> Any:
             "download_dir": request.app.state.download_dir,
         },
     }
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> Any:
+    return RedirectResponse(url="/dashboard", status_code=307)
 
 
 @app.get("/dashboard", include_in_schema=False)

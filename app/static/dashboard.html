@@ -2,7 +2,10 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1016">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>NAS Music Kit · 监控大盘</title>
 <style>
   :root {
@@ -94,6 +97,29 @@
   }
   #toast.show { opacity: 1; transform: none; }
   #toast.bad { border-color: rgba(239,68,68,.5); color: #fca5a5; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+  .table-wrap table { border: 0; border-radius: 0; }
+  @media (max-width: 720px) {
+    header { padding: 14px 16px; align-items: flex-start; }
+    h1 { font-size: 16px; }
+    h1 span { display: block; margin: 4px 0 0; }
+    .meta { width: 100%; gap: 10px; font-size: 12px; justify-content: space-between; }
+    main { padding: 16px 14px 40px; }
+    .cards, .panels { grid-template-columns: 1fr; }
+    .card { padding: 14px; }
+    .big { font-size: 20px; }
+    input[type="text"], select, textarea, button { font-size: 16px; }
+    button { min-height: 40px; }
+    .row { gap: 10px; }
+    .row > *, .row .auto { flex: 1 1 100%; }
+    .checks { gap: 12px; }
+    .table-wrap { -webkit-overflow-scrolling: touch; }
+    #jobsTable { min-width: 720px; }
+    #failTable { min-width: 560px; }
+    th, td { padding: 10px; }
+    #chartLog { max-height: 240px; }
+    #toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+  }
 </style>
 </head>
 <body>
@@ -203,6 +229,7 @@
   </div>
 
   <h3>当前与最近任务</h3>
+  <div class="table-wrap">
   <table id="jobsTable">
     <thead>
       <tr>
@@ -212,12 +239,15 @@
     </thead>
     <tbody id="jobsBody"><tr><td colspan="9" class="empty">暂无任务</td></tr></tbody>
   </table>
+  </div>
 
   <h3>最近失败 / 未匹配</h3>
-  <table>
+  <div class="table-wrap">
+  <table id="failTable">
     <thead><tr><th>任务</th><th>歌曲</th><th>歌手</th><th>状态</th><th>原因</th></tr></thead>
     <tbody id="failBody"><tr><td colspan="5" class="empty">暂无失败记录</td></tr></tbody>
   </table>
+  </div>
 
   <h3>榜单日志</h3>
   <pre id="chartLog">暂无榜单日志</pre>
@@ -334,6 +364,10 @@ function renderCharts(charts) {
   statusEl.textContent = info[0];
 
   const detail = [];
+  if (charts.configured === false) {
+    detail.push('缺少 ' + esc(charts.config_path || '/charts/config.json'));
+    detail.push('请确认 CHARTS_HOST_DIR 目录内有 config.json');
+  }
   if (charts.run_id) detail.push('run ' + esc(charts.run_id));
   if (charts.started_at) detail.push('开始 ' + fmtTime(charts.started_at));
   if (charts.duration_seconds !== null && charts.duration_seconds !== undefined) {

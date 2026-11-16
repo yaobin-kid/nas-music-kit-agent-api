@@ -177,6 +177,8 @@ GET /healthz
 http://NAS:8080/dashboard
 ```
 
+直接访问 `http://NAS:8080/` 会 307 跳转到 `/dashboard`。
+
 大盘每 5 秒自动刷新，展示：
 
 - 上游音乐服务是否可达、HTTP 状态码与延迟
@@ -272,6 +274,8 @@ GET /api/charts/report
 - `dry_run=true` 只抓取、匹配、出报表，不建列表、不补歌
 - `wait=true` 会等待执行结束再返回，适合调试
 - 已有任务运行时返回 `409`
+- 容器内 `/charts` 必须有 `charts.py` 和 `config.json`；缺少配置返回 `503`
+- 首次部署把 `music-charts/config.example.json` 复制为 `config.json`，再填 Navidrome 地址、账号和代理
 - 每天 6 点 cron 不受影响；手动刷新和 cron 不要同时执行
 
 ## 配置
@@ -403,7 +407,7 @@ TRUST_PROXY_HEADERS=true
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.11.2` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.11.3` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -895,8 +899,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.11.2
-git push origin v0.11.2
+git tag v0.11.3
+git push origin v0.11.3
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。

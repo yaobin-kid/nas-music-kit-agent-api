@@ -105,9 +105,13 @@ class ChartsRunner:
 
     def refresh(self, dry_run: bool = False, wait: bool = False) -> dict[str, Any]:
         if not (self.charts_dir / "charts.py").is_file():
-            raise ChartsNotConfigured(f"找不到 {self.charts_dir / 'charts.py'}")
+            raise ChartsNotConfigured(
+                f"找不到 {self.charts_dir / 'charts.py'}；请确认 CHARTS_HOST_DIR 挂载目录内包含 charts.py"
+            )
         if not self.config_path.is_file():
-            raise ChartsNotConfigured(f"找不到榜单配置 {self.config_path}")
+            raise ChartsNotConfigured(
+                f"找不到榜单配置 {self.config_path}；请把 config.example.json 复制为 config.json 放进 CHARTS_HOST_DIR 挂载目录"
+            )
 
         with self._lock:
             if self._state.get("status") == "running":
