@@ -199,8 +199,13 @@ app = FastAPI(
 
 @app.middleware("http")
 async def access_guard(request: Request, call_next):
-    """CIDR 白名单 + Basic 认证；/healthz 保持开放供健康检查。"""
-    if request.url.path == "/healthz":
+    """只保护监控大盘；业务 API 不经过白名单/Basic 认证，便于 Skill 调用。"""
+    path = request.url.path
+    if not (
+        path == "/dashboard"
+        or path.startswith("/dashboard/")
+        or path == "/api/dashboard/status"
+    ):
         return await call_next(request)
     policy: AccessPolicy | None = getattr(request.app.state, "access_policy", None)
     if policy is None:

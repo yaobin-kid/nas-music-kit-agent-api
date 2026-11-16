@@ -305,11 +305,11 @@ GET /api/charts/report
 | `CHARTS_CONFIG` | `/charts/config.json` | 容器内榜单配置文件 |
 | `CHARTS_REPORTS_DIR` | `/tmp/charts-reports` | 报表、日志和运行状态目录 |
 | `CHARTS_TIMEOUT` | `3600` | 单次榜单执行超时（秒） |
-| `ENABLE_IP_ALLOWLIST` | `auto` | IP 白名单开关：`auto` 表示配了 CIDR 才开启，也可显式 `true` / `false` |
-| `ALLOWED_CIDRS` | 空 | 允许访问的 IP/CIDR，逗号分隔；空表示不限制 |
-| `AUTH_USER` | 空 | Basic 认证用户名，和密码同时配置才生效 |
-| `AUTH_PASSWORD` | 空 | Basic 认证密码 |
-| `TRUST_PROXY_HEADERS` | `false` | 反向代理后设为 `true`，从 `X-Forwarded-For` 取真实 IP |
+| `ENABLE_IP_ALLOWLIST` | `auto` | 大盘 IP 白名单开关：`auto` 表示配了 CIDR 才开启，也可显式 `true` / `false` |
+| `ALLOWED_CIDRS` | 空 | 允许访问大盘的 IP/CIDR，逗号分隔；空表示不限制 |
+| `AUTH_USER` | 空 | 大盘 Basic 认证用户名，和密码同时配置才生效 |
+| `AUTH_PASSWORD` | 空 | 大盘 Basic 认证密码 |
+| `TRUST_PROXY_HEADERS` | `false` | 反向代理后设为 `true`，从 `X-Forwarded-For` 取大盘访问者真实 IP |
 
 ## 目录结构
 
@@ -344,18 +344,20 @@ nas-music-kit 的下载目录固定是 `/music`，这个不要改。Agent 只额
 - 限流只作用于经过本服务的请求；直接访问 juneix 的 `8848` 网页不受此限制
 - 限流状态在进程内存里，本镜像只启动一个 uvicorn 进程；如果部署多个副本，上游额度是共享的，需要自行降低每个副本的限制
 
-## 访问控制
+## 大盘访问控制
 
-服务默认不限制访问。生产部署建议至少开启 CIDR 白名单；大盘和下载接口都能触发实际操作，不能裸露在公网。
+IP 白名单和 Basic 认证只保护监控大盘（`/dashboard`、`/api/dashboard/status`）。搜索、下载、补歌、歌单导入、榜单、清洗、扫描等业务 API 不受影响，Skill 可以正常远程调用。
+
+大盘包含下载、清洗等操作按钮，建议对外限制访问；业务 API 本身没有认证，端口不能直接暴露到公网。
 
 ```env
-# IP 白名单开关：auto = 配了 CIDR 就开启；也可显式 true / false
+# 大盘 IP 白名单开关：auto = 配了 CIDR 就开启；也可显式 true / false
 ENABLE_IP_ALLOWLIST=true
 
-# 只允许局域网和 Docker 网段；逗号分隔，支持单个 IP 和 CIDR
+# 只允许局域网和 Docker 网段访问大盘；逗号分隔，支持单个 IP 和 CIDR
 ALLOWED_CIDRS=192.168.1.0/24,10.0.0.0/8,172.17.0.0/16
 
-# HTTP Basic 认证；两项必须同时配置
+# 大盘 HTTP Basic 认证；两项必须同时配置
 AUTH_USER=admin
 AUTH_PASSWORD=change-me
 
@@ -365,13 +367,16 @@ TRUST_PROXY_HEADERS=true
 
 规则：
 
-- `ENABLE_IP_ALLOWLIST` 默认 `auto`：`ALLOWED_CIDRS` 非空就自动开启，保持旧行为
+- 只作用于 `/dashboard` 和 `/api/dashboard/status`，其它路径直接放行
+- `ENABLE_IP_ALLOWLIST` 默认 `auto`：`ALLOWED_CIDRS` 非空就自动开启
 - 显式设 `true` 但 `ALLOWED_CIDRS` 为空会拒绝启动，避免“以为开了其实全放行”
 - 显式设 `false` 会忽略已配置的 CIDR，方便临时关闭排查
-- 白名单对所有路径生效，`/healthz` 例外（容器健康检查不受影响）
-- 来源 IP 不在白名单返回 `403`，不会读取账号密码
-- 启用 Basic 认证后，未带凭据返回 `401` 和 `WWW-Authenticate`；浏览器打开 `/dashboard` 会弹登录框
-- `curl` 调用需要加 `-u "admin:change-me"`
+- 访问大盘时来源 IP 不在白名单返回 `403`，不会读取账号密码
+- 启用 Basic 认证后，访问大盘未带凭据返回 `401` 和 `WWW-Authenticate`；浏览器会弹登录框
+- 需要命令行访问大盘时可以加 `-u "admin:change-me"`，例如：
+  ```bash
+  curl -u "admin:change-me" http://NAS:8080/api/dashboard/status
+  ```
 - `AUTH_USER` / `AUTH_PASSWORD` 只配一项会拒绝启动，避免“以为开了认证其实没开”
 - `ALLOWED_CIDRS` 写错格式会拒绝启动，错误信息会指出具体条目
 
@@ -398,7 +403,7 @@ TRUST_PROXY_HEADERS=true
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.11.1` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.11.2` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -890,8 +895,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.11.1
-git push origin v0.11.1
+git tag v0.11.2
+git push origin v0.11.2
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。

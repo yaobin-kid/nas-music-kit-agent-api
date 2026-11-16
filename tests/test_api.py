@@ -104,11 +104,13 @@ def test_cidr_allowlist(monkeypatch, tmp_path):
 
     with TestClient(app, client=("192.168.1.20", 1000)) as test_client:
         assert test_client.get("/healthz").status_code == 200
-        assert test_client.get("/api/charts/status").status_code == 200
+        assert test_client.get("/dashboard").status_code == 200
 
     with TestClient(app, client=("10.0.0.5", 1000)) as test_client:
         assert test_client.get("/healthz").status_code == 200
-        assert test_client.get("/api/charts/status").status_code == 403
+        assert test_client.get("/dashboard").status_code == 403
+        assert test_client.get("/api/dashboard/status").status_code == 403
+        assert test_client.get("/api/charts/status").status_code == 200
 
 
 def test_ip_allowlist_switch_off(monkeypatch, tmp_path):
@@ -119,7 +121,7 @@ def test_ip_allowlist_switch_off(monkeypatch, tmp_path):
     monkeypatch.setenv("ENABLE_IP_ALLOWLIST", "false")
 
     with TestClient(app, client=("10.0.0.5", 1000)) as test_client:
-        assert test_client.get("/api/charts/status").status_code == 200
+        assert test_client.get("/dashboard").status_code == 200
 
 
 def test_ip_allowlist_enabled_requires_cidrs(monkeypatch, tmp_path):
@@ -143,7 +145,7 @@ def test_trust_proxy_headers(monkeypatch, tmp_path):
 
     with TestClient(app, client=("127.0.0.1", 1000)) as test_client:
         response = test_client.get(
-            "/api/charts/status",
+            "/dashboard",
             headers={"X-Forwarded-For": "192.168.1.30"},
         )
         assert response.status_code == 200
@@ -158,16 +160,17 @@ def test_basic_auth(monkeypatch, tmp_path):
 
     with TestClient(app) as test_client:
         assert test_client.get("/healthz").status_code == 200
+        assert test_client.get("/api/charts/status").status_code == 200
 
-        unauthorized = test_client.get("/api/charts/status")
+        unauthorized = test_client.get("/dashboard")
         assert unauthorized.status_code == 401
         assert unauthorized.headers["www-authenticate"].startswith("Basic")
 
         assert test_client.get(
-            "/api/charts/status", auth=("admin", "secret")
+            "/dashboard", auth=("admin", "secret")
         ).status_code == 200
         assert test_client.get(
-            "/api/charts/status", auth=("admin", "wrong")
+            "/dashboard", auth=("admin", "wrong")
         ).status_code == 401
 
 
