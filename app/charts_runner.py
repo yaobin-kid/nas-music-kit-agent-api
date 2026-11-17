@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import re
@@ -66,6 +67,9 @@ class ChartsRunner:
             "report_file": None,
             "log_file": None,
             "log_tail": "",
+            "summary": [],
+            "unmatched": [],
+            "unmatched_total": 0,
         }
         try:
             data = json.loads(self.state_file.read_text(encoding="utf-8"))
@@ -92,6 +96,11 @@ class ChartsRunner:
     def get_state(self) -> dict[str, Any]:
         with self._lock:
             state = dict(self._state)
+            total = len(state.get("unmatched") or [])
+            if total > 500:
+                state["unmatched"] = (state.get("unmatched") or [])[:500]
+        state["unmatched_total"] = max(total, state.get("unmatched_total") or 0)
+        state["unmatched_truncated"] = state["unmatched_total"] > len(state.get("unmatched") or [])
         state["configured"] = (
             (self.charts_dir / "charts.py").is_file()
             and self.config_path.is_file()
@@ -130,6 +139,9 @@ class ChartsRunner:
                 "report_file": None,
                 "log_file": None,
                 "log_tail": "",
+                "summary": [],
+                "unmatched": [],
+                "unmatched_total": 0,
             }
             self._save_state()
 
@@ -186,6 +198,9 @@ class ChartsRunner:
 
         job_ids = re.findall(r"\[agent\].*?([0-9a-f]{8,})", output)
         report_file = self._latest_report()
+        payload = self._parse_summary(output)
+        chart_summary = payload.get("summary") or []
+        unmatched = self._read_unmatched(payload.get("csv")) if payload else []
         finished = datetime.now()
         duration = round((finished - started).total_seconds(), 1)
 
@@ -200,8 +215,45 @@ class ChartsRunner:
                 report_file=str(report_file) if report_file else None,
                 log_file=str(log_file) if log_file else None,
                 log_tail=output[-8000:],
+                summary=chart_summary,
+                unmatched=unmatched,
+                unmatched_total=len(unmatched),
             )
             self._save_state()
+
+    @staticmethod
+    def _parse_summary(output: str) -> dict[str, Any]:
+        marker = "=== SUMMARY_JSON ==="
+        if marker not in output:
+            return {}
+        tail = output.split(marker, 1)[1].strip()
+        line = tail.splitlines()[0] if tail else ""
+        try:
+            data = json.loads(line)
+        except Exception:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    def _read_unmatched(path: str | None) -> list[dict[str, Any]]:
+        if not path:
+            return []
+        try:
+            with open(path, encoding="utf-8-sig", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+        except Exception:
+            return []
+        return [
+            {
+                "chart": row.get("榜单", ""),
+                "platform": row.get("平台", ""),
+                "rank": row.get("排名", ""),
+                "title": row.get("歌曲名", ""),
+                "artist": row.get("歌手", ""),
+                "reason": row.get("原因", ""),
+            }
+            for row in rows
+        ]
 
     def _latest_report(self) -> Path | None:
         try:

@@ -210,6 +210,8 @@ curl -s "$MUSIC_KIT_API_URL/api/charts/status"
 - `status`：`idle` / `running` / `completed` / `failed`
 - `job_ids`：本次提交的补歌任务 id，可再用 `/api/jobs/{id}` 查详情
 - `report_file`：未匹配清单路径
+- `summary`：每个榜单的抓取数、去重后、匹配数、未匹配数
+- `unmatched`：未匹配歌曲明细，最多返回 500 条，完整清单下载 CSV
 - `log_tail`：最近日志
 - `error`：失败原因
 

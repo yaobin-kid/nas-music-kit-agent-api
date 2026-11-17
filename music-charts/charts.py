@@ -501,11 +501,13 @@ def main():
             log(f"[{key}] 抓取 {len(tracks)} 首 ({time.time() - t0:.1f}s)")
         except Exception as e:
             log(f"[{key}] 抓取失败: {e}")
-            summary.append({"key": key, "name": name, "total": 0, "matched": 0,
-                            "unmatched": 0, "error": str(e)})
+            summary.append({"key": key, "name": name, "fetched": 0, "total": 0,
+                            "deduped": 0, "matched": 0, "unmatched": 0,
+                            "unmatched_rows": 0, "error": str(e)})
             continue
 
         matched_ids, seen = [], set()
+        missing_rows = 0
         for i, tr in enumerate(tracks):
             song, reason = match_one(tr["title"], tr["artist"], idx, songs, threshold)
             if song is not None:
@@ -514,6 +516,7 @@ def main():
                     seen.add(sid)
                     matched_ids.append(sid)
             else:
+                missing_rows += 1
                 report_rows.append({
                     "平台": key, "榜单": name, "排名": i + 1,
                     "歌曲名": tr["title"], "歌手": tr["artist"],
@@ -532,9 +535,11 @@ def main():
             except Exception as e:
                 log(f"[{key}] 写播放列表失败: {e}")
 
-        summary.append({"key": key, "name": name, "total": uniq,
+        summary.append({"key": key, "name": name, "fetched": len(tracks),
+                        "total": uniq, "deduped": uniq,
                         "matched": len(matched_ids),
-                        "unmatched": max(uniq - len(matched_ids), 0)})
+                        "unmatched": max(uniq - len(matched_ids), 0),
+                        "unmatched_rows": missing_rows})
 
     if not dry:
         cleanup_old_chart_playlists(nd, int(conf.get("keep_days", 1)))
@@ -558,10 +563,11 @@ def main():
     md_path = os.path.join(rep_dir, f"榜单更新-{stamp}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(f"# 榜单更新报告 {stamp}\n\n")
-        f.write("| 榜单 | 榜单曲目 | 已匹配 | 未匹配 |\n|---|---|---|---|\n")
+        f.write("| 榜单 | 抓取 | 去重后 | 已匹配 | 未匹配 |\n|---|---|---|---|---|\n")
         for s in summary:
             err = f"抓取失败: {s['error']}" if s.get("error") else ""
-            f.write(f"| {s['name']} | {s['total']} | {s['matched']} | "
+            f.write(f"| {s['name']} | {s.get('fetched', s['total'])} | "
+                    f"{s.get('deduped', s['total'])} | {s['matched']} | "
                     f"{'—' if err else s['unmatched']} |\n")
             if err:
                 f.write(f"| ↳ {err} | | | |\n")

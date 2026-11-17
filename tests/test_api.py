@@ -40,7 +40,25 @@ def test_charts_refresh_endpoint(monkeypatch, tmp_path):
     charts_dir = tmp_path / "charts"
     charts_dir.mkdir()
     (charts_dir / "charts.py").write_text(
-        "print('[agent] 已提交补歌任务 abcdef1234567890，共 2 首')\n",
+        """
+import json, os
+rep = os.environ["CHARTS_REPORTS_DIR"]
+os.makedirs(rep, exist_ok=True)
+csv_path = os.path.join(rep, "未匹配清单-2026-11-17.csv")
+with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
+    f.write("平台,榜单,排名,歌曲名,歌手,原因\\n")
+    f.write("apple_music_us,榜单06·AppleMusic(美国),1,某首歌,某歌手,曲库无匹配\\n")
+print("[agent] 已提交补歌任务 abcdef1234567890，共 2 首")
+print("=== SUMMARY_JSON ===")
+print(json.dumps({
+    "summary": [{
+        "key": "apple_music_us", "name": "榜单06·AppleMusic(美国)",
+        "fetched": 100, "deduped": 98, "matched": 80,
+        "unmatched": 18, "unmatched_rows": 20,
+    }],
+    "unmatched": 20, "csv": csv_path,
+}, ensure_ascii=False))
+""",
         encoding="utf-8",
     )
     config = charts_dir / "config.json"
@@ -61,6 +79,10 @@ def test_charts_refresh_endpoint(monkeypatch, tmp_path):
     body = response.json()
     assert body["status"] == "completed"
     assert body["job_ids"] == ["abcdef1234567890"]
+    assert body["summary"][0]["fetched"] == 100
+    assert body["summary"][0]["deduped"] == 98
+    assert body["unmatched_total"] == 1
+    assert body["unmatched"][0]["title"] == "某首歌"
 
 
 @pytest.fixture(autouse=True)

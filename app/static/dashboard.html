@@ -99,6 +99,8 @@
   #toast.bad { border-color: rgba(239,68,68,.5); color: #fca5a5; }
   .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
   .table-wrap table { border: 0; border-radius: 0; }
+  .table-wrap.tall { max-height: 420px; overflow: auto; }
+  .table-wrap.tall thead th { position: sticky; top: 0; background: #151a22; z-index: 1; }
   @media (max-width: 720px) {
     header { padding: 14px 16px; align-items: flex-start; }
     h1 { font-size: 16px; }
@@ -116,6 +118,8 @@
     .table-wrap { -webkit-overflow-scrolling: touch; }
     #jobsTable { min-width: 720px; }
     #failTable { min-width: 560px; }
+    #chartSummaryTable { min-width: 640px; }
+    #chartMissTable { min-width: 560px; }
     th, td { padding: 10px; }
     #chartLog { max-height: 240px; }
     #toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
@@ -226,6 +230,22 @@
       </div>
       <div class="result-box" id="maintResult">清洗会把 /music 整理到 /library；榜单刷新会抓取、匹配并补歌。</div>
     </div>
+  </div>
+
+  <h3>榜单抓取与匹配</h3>
+  <div class="table-wrap">
+  <table id="chartSummaryTable">
+    <thead><tr><th>榜单</th><th>抓取</th><th>去重后</th><th>匹配</th><th>未匹配</th><th>未匹配条数</th></tr></thead>
+    <tbody id="chartSummaryBody"><tr><td colspan="6" class="empty">暂无榜单明细</td></tr></tbody>
+  </table>
+  </div>
+
+  <h3>未匹配歌曲 <span class="sub" id="chartMissInfo"></span></h3>
+  <div class="table-wrap tall">
+  <table id="chartMissTable">
+    <thead><tr><th>榜单</th><th>排名</th><th>歌曲</th><th>歌手</th><th>原因</th></tr></thead>
+    <tbody id="chartMissBody"><tr><td colspan="5" class="empty">暂无未匹配歌曲</td></tr></tbody>
+  </table>
   </div>
 
   <h3>当前与最近任务</h3>
@@ -390,6 +410,47 @@ function renderCharts(charts) {
   $('chartLog').textContent = tail ? tail.split('\n').slice(-20).join('\n') : '暂无榜单日志';
 }
 
+function renderChartSummary(charts) {
+  const rows = charts.summary || [];
+  if (!rows.length) {
+    $('chartSummaryBody').innerHTML = '<tr><td colspan="6" class="empty">暂无榜单明细</td></tr>';
+    return;
+  }
+  $('chartSummaryBody').innerHTML = rows.map((item) =>
+    '<tr>' +
+      '<td>' + esc(item.name || item.key || '—') + '</td>' +
+      '<td>' + esc(item.fetched ?? item.total ?? 0) + '</td>' +
+      '<td>' + esc(item.deduped ?? item.total ?? 0) + '</td>' +
+      '<td>' + esc(item.matched ?? 0) + '</td>' +
+      '<td>' + (item.error
+        ? '<span class="tag bad">抓取失败</span>'
+        : esc(item.unmatched ?? 0)) + '</td>' +
+      '<td>' + esc(item.unmatched_rows ?? '—') + '</td>' +
+    '</tr>'
+  ).join('');
+}
+
+function renderChartMissing(charts) {
+  const rows = charts.unmatched || [];
+  const total = charts.unmatched_total || rows.length;
+  $('chartMissInfo').textContent = total
+    ? '共 ' + total + ' 条' + (charts.unmatched_truncated ? '，仅显示前 ' + rows.length + ' 条，完整清单请下载 CSV' : '')
+    : '';
+  if (!rows.length) {
+    $('chartMissBody').innerHTML = '<tr><td colspan="5" class="empty">暂无未匹配歌曲</td></tr>';
+    return;
+  }
+  $('chartMissBody').innerHTML = rows.map((row) =>
+    '<tr>' +
+      '<td>' + esc(row.chart || row.platform || '—') + '</td>' +
+      '<td>' + esc(row.rank || '—') + '</td>' +
+      '<td>' + esc(row.title || '—') + '</td>' +
+      '<td>' + esc(row.artist || '—') + '</td>' +
+      '<td>' + esc((row.reason || '').slice(0, 160)) + '</td>' +
+    '</tr>'
+  ).join('');
+}
+
 function render(data) {
   $('version').textContent = data.version || '-';
   $('uptime').textContent = fmtUptime(data.uptime_seconds);
@@ -438,6 +499,8 @@ function render(data) {
   renderJobs(jobs);
   renderFailures(jobs);
   renderCharts(data.charts || {});
+  renderChartSummary(data.charts || {});
+  renderChartMissing(data.charts || {});
 }
 
 let searchCandidates = [];

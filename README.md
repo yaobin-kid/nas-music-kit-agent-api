@@ -177,7 +177,7 @@ GET /healthz
 http://NAS:8080/dashboard
 ```
 
-直接访问 `http://NAS:8080/` 会 307 跳转到 `/dashboard`。
+直接访问 `http://NAS:8080/` 会 307 跳转到 `/dashboard`。页面适配手机，包含榜单抓取/匹配统计和未匹配歌曲列表。
 
 大盘每 5 秒自动刷新，展示：
 
@@ -267,6 +267,7 @@ POST /api/charts/refresh {"dry_run": false}
   → API 后台调度内置榜单引擎（抓取、匹配、建列表、提交补歌），无需进容器执行脚本
 GET /api/charts/status
   → status / job_ids / report_file / log_tail / error
+  → summary / unmatched / unmatched_total：每个榜单的抓取数、去重后、匹配数、未匹配数，以及未匹配歌曲明细
 GET /api/charts/report
   → 下载最新未匹配清单 CSV
 ```
@@ -407,7 +408,7 @@ TRUST_PROXY_HEADERS=true
 
 ## 部署
 
-三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.11.3` 之类的具体标签即可。
+三种方式按需选一种。需要固定版本时，把 `latest` 换成 `0.11.4` 之类的具体标签即可。
 
 | 方案 | 使用镜像 | 端口 |
 | --- | --- | --- |
@@ -899,8 +900,8 @@ uvicorn app.main:app --reload --port 8080
 发布新版本：
 
 ```bash
-git tag v0.11.3
-git push origin v0.11.3
+git tag v0.11.4
+git push origin v0.11.4
 ```
 
 首次推送的 GHCR 包默认是私有的，需要在仓库的 Packages 设置里改为 public，或先 `docker login ghcr.io` 再拉取。
